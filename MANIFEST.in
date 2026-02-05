@@ -1,0 +1,9 @@
+include README.md
+include LICENSE
+include requirements.txt
+recursive-include k_sites *.py
+recursive-include k_sites/data *.json *.txt
+recursive-exclude *.pyc
+recursive-exclude __pycache__
+global-exclude .git*
+global-exclude *.log

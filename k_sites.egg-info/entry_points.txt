@@ -1,0 +1,2 @@
+[console_scripts]
+k-sites = k_sites.cli:main

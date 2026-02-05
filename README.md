@@ -1,0 +1,176 @@
+# K-Sites: Advanced CRISPR Guide RNA Design Platform
+
+K-Sites is a comprehensive CRISPR guide RNA design platform that integrates GO term analysis with KEGG pathway graph analytics to identify non-pleiotropic gene targets and design optimal gRNAs with pathway-aware off-target filtering.
+
+## 🌟 Features
+
+### Non-Pleiotropic Gene Identification
+- **Multi-database integration**: Queries GO.org, UniProt, and KEGG simultaneously
+- **Pleiotropy scoring algorithm**: Exponential decay scoring based on number of associated Biological Process GO terms
+- **Evidence-based filtering**: Distinguishes experimental evidence (IDA, IMP, IGI) from computational predictions (IEA)
+- **Cross-species validation**: Verifies gene specificity across model organisms (human, mouse, fly, worm)
+- **Customizable thresholds**: User controls acceptable pleiotropy level (0-10 scale)
+- **Weighted ranking**: Combines specificity, evidence quality, literature support, and conservation scores
+
+### RAG-Based Phenotype Prediction
+- **Real-time PubMed integration**: NCBI Entrez API queries
+- **Targeted searches**: Gene knockout/deletion studies, mutant phenotype reports, viability assessments, CRISPR guide literature
+- **Smart query construction**: Multiple query strategies per gene
+- **Abstract and full-text retrieval**: PMC Open Access integration
+- **Batch processing**: Efficient multi-gene analysis
+- **Semantic embeddings**: SentenceTransformer (all-MiniLM-L6-v2)
+- **Vector search**: FAISS L2 distance indexing
+- **Adaptive retrieval**: Relevance threshold filtering, diversity weighting
+- **Phenotype extraction & classification**: NLP pattern matching with severity categorization (LETHAL, SEVERE, MODERATE, MILD, UNKNOWN)
+- **Risk assessment**: CRITICAL/HIGH/MEDIUM/LOW/UNKNOWN classification
+
+### Integrated Workflow
+- **End-to-end pipeline**: From gene selection to experimental recommendation
+- **Pathway-aware off-target filtering**: Prevents disruption of critical pathways
+- **Publication-ready HTML reports**: Comprehensive analysis with recommendations
+- **Multiple output formats**: CSV, FASTA, and HTML reports
+
+## 🛠️ Installation
+
+### Prerequisites
+- Python 3.8+
+- Git
+- Docker (for Neo4j graph database, optional)
+
+### Setup
+
+1. **Clone the repository:**
+```bash
+git clone https://github.com/yourusername/k-sites.git
+cd k-sites
+```
+
+2. **Install the package:**
+```bash
+pip install -e .
+```
+
+3. **Set up environment variables:**
+```bash
+export NCBI_EMAIL="your.email@example.com"  # Required for NCBI API calls
+export NCBI_API_KEY="your_ncbi_api_key"     # Optional but recommended for higher rate limits
+```
+
+### Optional: Neo4j Graph Database Setup
+
+For pathway-aware analysis, you can optionally set up the Neo4j database:
+
+1. **Install Docker** (if not already installed)
+
+2. **Start Neo4j container:**
+```bash
+docker run -d --name neo4j-ksites -p 7687:7687 -p 7474:7474 -e NEO4J_AUTH=neo4j/password neo4j:latest
+```
+
+3. **Ingest KEGG pathway data:**
+```bash
+python -m k_sites.neo4j.ingest_kegg --taxid 9606
+```
+
+## 🚀 Usage
+
+### Command Line Interface
+
+Basic usage:
+```bash
+k-sites --go-term GO:0006281 --organism "Homo sapiens" --output report.html
+```
+
+Advanced usage with all options:
+```bash
+k-sites --go-term GO:0006281 --organism 9606 --output results/report.html \
+        --use-graph \
+        --max-pleiotropy 5 \
+        --evidence-filter experimental \
+        --species-validation 9606 10090 10116 \
+        --predict-phenotypes
+```
+
+### Programmatic API
+
+```python
+from k_sites.workflow.pipeline import run_k_sites_pipeline
+
+results = run_k_sites_pipeline(
+    go_term="GO:0006281",  # DNA repair
+    organism="Homo sapiens",
+    max_pleiotropy=3,
+    use_graph=True,
+    evidence_filter="experimental",
+    species_validation=["9606", "10090"],
+    predict_phenotypes=True
+)
+
+# Generate report
+from k_sites.reporting.report_generator import generate_html_report
+generate_html_report(results, "output_report.html")
+```
+
+## ⚙️ Configuration
+
+### Environment Variables
+- `NCBI_EMAIL`: Your email address for NCBI API compliance (required)
+- `NCBI_API_KEY`: NCBI API key for higher rate limits (optional)
+- `NEO4J_URI`: Neo4j connection URI (default: bolt://localhost:7687)
+- `NEO4J_USER`: Neo4j username (default: neo4j)
+- `NEO4J_PASSWORD`: Neo4j password (default: password)
+
+### Parameters
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `--go-term` | GO term to analyze (e.g., "GO:0006281") | Required |
+| `--organism` | Organism as TaxID or scientific name | Required |
+| `--output` | Output HTML report path | Required |
+| `--use-graph` | Enable Neo4j pathway analysis | Enabled if available |
+| `--max-pleiotropy` | Maximum allowed pleiotropy score | 3 |
+| `--evidence-filter` | Evidence type filter | "experimental" |
+| `--species-validation` | Species for cross-validation | 9606 10090 10116 7227 6239 |
+| `--predict-phenotypes` | Enable RAG-based phenotype prediction | Disabled |
+
+## 🏗️ Architecture
+
+The K-Sites platform consists of several interconnected modules:
+
+```
+k_sites/
+├── data_retrieval/     # GO term mapping, organism resolution
+├── gene_analysis/      # Pleiotropy scoring
+├── crispr_design/      # gRNA design and scoring
+├── neo4j/             # Graph database integration
+├── rag_system/        # Literature-based phenotype prediction
+├── workflow/          # Pipeline orchestration
+├── reporting/         # Report generation
+└── tests/             # Unit tests
+```
+
+## 🧪 Testing
+
+Run the test suite:
+```bash
+python -m pytest tests/
+```
+
+## 📄 License
+
+MIT License - see the LICENSE file for details.
+
+## 🤝 Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## 🐛 Issues
+
+If you encounter any issues, please file them in the Issues section of the repository.
+
+## 🙏 Acknowledgments
+
+- Thanks to the GO Consortium for gene ontology resources
+- Thanks to KEGG for pathway data
+- Thanks to NCBI for biological databases
+- Thanks to the Neo4j community for graph database technology
