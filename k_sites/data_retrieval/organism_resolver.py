@@ -53,6 +53,35 @@ COMMON_ORGANISMS = {
     "cel": {"taxid": "6239", "scientific_name": "Caenorhabditis elegans", "common_name": "worm"},
     "dre": {"taxid": "7955", "scientific_name": "Danio rerio", "common_name": "zebrafish"},
     "sce": {"taxid": "4932", "scientific_name": "Saccharomyces cerevisiae", "common_name": "yeast"},
+    
+    # Plants
+    "39947": {"taxid": "39947", "scientific_name": "Oryza sativa Japonica Group", "common_name": "rice"},
+    "Oryza sativa Japonica Group": {"taxid": "39947", "scientific_name": "Oryza sativa Japonica Group", "common_name": "rice"},
+    "Oryza sativa japonica": {"taxid": "39947", "scientific_name": "Oryza sativa Japonica Group", "common_name": "rice"},
+    "rice": {"taxid": "39947", "scientific_name": "Oryza sativa Japonica Group", "common_name": "rice"},
+    
+    "3702": {"taxid": "3702", "scientific_name": "Arabidopsis thaliana", "common_name": "thale cress"},
+    "Arabidopsis thaliana": {"taxid": "3702", "scientific_name": "Arabidopsis thaliana", "common_name": "thale cress"},
+    "arabidopsis": {"taxid": "3702", "scientific_name": "Arabidopsis thaliana", "common_name": "thale cress"},
+    
+    "4577": {"taxid": "4577", "scientific_name": "Zea mays", "common_name": "maize"},
+    "Zea mays": {"taxid": "4577", "scientific_name": "Zea mays", "common_name": "maize"},
+    "maize": {"taxid": "4577", "scientific_name": "Zea mays", "common_name": "maize"},
+    "corn": {"taxid": "4577", "scientific_name": "Zea mays", "common_name": "maize"},
+    
+    "3847": {"taxid": "3847", "scientific_name": "Glycine max", "common_name": "soybean"},
+    "Glycine max": {"taxid": "3847", "scientific_name": "Glycine max", "common_name": "soybean"},
+    "soybean": {"taxid": "3847", "scientific_name": "Glycine max", "common_name": "soybean"},
+    
+    # Bacteria
+    "83333": {"taxid": "83333", "scientific_name": "Escherichia coli K-12", "common_name": "E. coli"},
+    "Escherichia coli": {"taxid": "83333", "scientific_name": "Escherichia coli K-12", "common_name": "E. coli"},
+    "E. coli": {"taxid": "83333", "scientific_name": "Escherichia coli K-12", "common_name": "E. coli"},
+    "eco": {"taxid": "83333", "scientific_name": "Escherichia coli K-12", "common_name": "E. coli"},
+    
+    # Fungi
+    "559292": {"taxid": "559292", "scientific_name": "Saccharomyces cerevisiae S288C", "common_name": "baker's yeast"},
+    "Saccharomyces cerevisiae S288C": {"taxid": "559292", "scientific_name": "Saccharomyces cerevisiae S288C", "common_name": "baker's yeast"},
 }
 
 
@@ -244,3 +273,56 @@ def _get_cache_file_path() -> Path:
     """Get the path to the organism cache file."""
     cache_dir = Path.home() / ".openclaw" / "workspace" / "k-sites" / ".cache"
     return cache_dir / "organism_cache.json"
+
+
+def search_organisms(query: str, limit: int = 20) -> list:
+    """
+    Search for organisms by name or taxid.
+    
+    Args:
+        query: Search string (scientific name, common name, or taxid)
+        limit: Maximum number of results to return
+        
+    Returns:
+        List of organism dictionaries matching the query
+    """
+    query_lower = query.lower().strip()
+    results = []
+    
+    # Search in common organisms
+    seen_taxids = set()
+    for key, org in COMMON_ORGANISMS.items():
+        taxid = org['taxid']
+        if taxid in seen_taxids:
+            continue
+            
+        # Check if query matches any field
+        if (query_lower in key.lower() or 
+            query_lower in org['scientific_name'].lower() or
+            query_lower in org.get('common_name', '').lower() or
+            query_lower == taxid):
+            
+            results.append({
+                'name': org['scientific_name'],
+                'taxid': taxid,
+                'common_name': org.get('common_name', '')
+            })
+            seen_taxids.add(taxid)
+            
+        if len(results) >= limit:
+            break
+    
+    # If query is numeric, try exact taxid match via NCBI
+    if query.isdigit() and len(results) == 0:
+        try:
+            result = resolve_organism(query)
+            if result:
+                results.append({
+                    'name': result['scientific_name'],
+                    'taxid': result['taxid'],
+                    'common_name': result.get('common_name', '')
+                })
+        except OrganismNotFoundError:
+            pass
+    
+    return results

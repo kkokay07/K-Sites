@@ -1,0 +1,33 @@
+# K-Sites Web Application Requirements
+
+# Web Framework
+Flask==3.0.0
+Flask-SQLAlchemy==3.1.1
+Flask-CORS==4.0.0
+Flask-Mail==0.9.1
+
+# Database
+SQLAlchemy==2.0.36
+
+# Task Queue (for background jobs)
+Celery==5.3.4
+Redis==5.0.1
+
+# Neo4j
+neo4j==5.15.0
+
+# Email
+email-validator==2.1.0
+
+# Existing K-Sites dependencies
+# These should already be installed from the parent project
+# - requests
+# - pyyaml
+# - dataclasses-json
+# - pandas
+# - numpy
+# - biopython
+
+# Note: This webapp requires the K-Sites package to be installed
+# Install from parent directory: pip install -e ..
+# Redis server required for Celery: sudo apt-get install redis-server

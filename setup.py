@@ -12,7 +12,7 @@ with open(os.path.join(this_directory, 'README.md'), encoding='utf-8') as f:
 
 setup(
     name="k-sites",
-    version="1.0.0",
+    version="1.1.0",
     author="Kanaka KK, Sandip Garai, Jeevan C, Tanzil Fatima",
     author_email="kanakakk@example.com",
     description="Universal K-Sites: AI-Powered CRISPR Guide RNA Design Platform with Pathway-Aware Off-Target Filtering",
@@ -50,7 +50,34 @@ setup(
         "tqdm>=4.60.0",
         "dataclasses-json>=0.5.0",
         "pandas>=1.3.0",
+        "openpyxl>=3.0.0",
+        "numpy>=1.21.0",
     ],
+    extras_require={
+        "rag": [
+            "sentence-transformers>=2.2.0",
+            "faiss-cpu>=1.7.4",
+        ],
+        "webapp": [
+            "flask>=3.0.0",
+            "flask-sqlalchemy>=3.0.0",
+            "flask-cors>=4.0.0",
+            "flask-mail>=0.9.1",
+            "email-validator>=2.1.0",
+            "jinja2>=3.1.0",
+        ],
+        "all": [
+            "sentence-transformers>=2.2.0",
+            "faiss-cpu>=1.7.4",
+            "flask>=3.0.0",
+            "flask-sqlalchemy>=3.0.0",
+            "flask-cors>=4.0.0",
+            "flask-mail>=0.9.1",
+            "email-validator>=2.1.0",
+            "jinja2>=3.1.0",
+            "python-dotenv>=1.0.0",
+        ],
+    },
     entry_points={
         "console_scripts": [
             "k-sites=k_sites.cli:main",

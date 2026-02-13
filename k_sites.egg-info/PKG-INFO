@@ -1,6 +1,6 @@
-Metadata-Version: 2.1
+Metadata-Version: 2.4
 Name: k-sites
-Version: 1.0.0
+Version: 1.1.0
 Summary: Universal K-Sites: AI-Powered CRISPR Guide RNA Design Platform with Pathway-Aware Off-Target Filtering
 Home-page: https://github.com/KanakaKK/K-sites
 Author: Kanaka KK, Sandip Garai, Jeevan C, Tanzil Fatima
@@ -25,185 +25,223 @@ Classifier: Topic :: Software Development :: Libraries :: Python Modules
 Classifier: Typing :: Typed
 Requires-Python: >=3.8
 Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: requests>=2.25.0
+Requires-Dist: biopython>=1.78
+Requires-Dist: neo4j>=4.4.0
+Requires-Dist: pyyaml>=5.4.0
+Requires-Dist: tqdm>=4.60.0
+Requires-Dist: dataclasses-json>=0.5.0
+Requires-Dist: pandas>=1.3.0
+Requires-Dist: openpyxl>=3.0.0
+Requires-Dist: numpy>=1.21.0
+Provides-Extra: rag
+Requires-Dist: sentence-transformers>=2.2.0; extra == "rag"
+Requires-Dist: faiss-cpu>=1.7.4; extra == "rag"
+Provides-Extra: webapp
+Requires-Dist: flask>=3.0.0; extra == "webapp"
+Requires-Dist: flask-sqlalchemy>=3.0.0; extra == "webapp"
+Requires-Dist: flask-cors>=4.0.0; extra == "webapp"
+Requires-Dist: flask-mail>=0.9.1; extra == "webapp"
+Requires-Dist: email-validator>=2.1.0; extra == "webapp"
+Requires-Dist: jinja2>=3.1.0; extra == "webapp"
+Provides-Extra: all
+Requires-Dist: sentence-transformers>=2.2.0; extra == "all"
+Requires-Dist: faiss-cpu>=1.7.4; extra == "all"
+Requires-Dist: flask>=3.0.0; extra == "all"
+Requires-Dist: flask-sqlalchemy>=3.0.0; extra == "all"
+Requires-Dist: flask-cors>=4.0.0; extra == "all"
+Requires-Dist: flask-mail>=0.9.1; extra == "all"
+Requires-Dist: email-validator>=2.1.0; extra == "all"
+Requires-Dist: jinja2>=3.1.0; extra == "all"
+Requires-Dist: python-dotenv>=1.0.0; extra == "all"
+Dynamic: author
+Dynamic: author-email
+Dynamic: classifier
+Dynamic: description
+Dynamic: description-content-type
+Dynamic: home-page
+Dynamic: keywords
+Dynamic: license-file
+Dynamic: project-url
+Dynamic: provides-extra
+Dynamic: requires-dist
+Dynamic: requires-python
+Dynamic: summary
 
-# Universal K-Sites: AI-Powered CRISPR Guide RNA Design Platform
+# K-Sites: Advanced CRISPR Guide RNA Design Platform
 
-Universal K-Sites is an advanced CRISPR guide RNA (gRNA) design platform that integrates Gene Ontology (GO) term analysis with KEGG pathway graph analytics to create safer, more specific gRNA designs for targeted gene editing.
+K-Sites is a comprehensive CRISPR guide RNA design platform that integrates GO term analysis with KEGG pathway graph analytics to identify non-pleiotropic gene targets and design optimal gRNAs with pathway-aware off-target filtering.
 
-## 🎯 **Overview**
+## 🌟 Features
 
-Traditional CRISPR gRNA design focuses primarily on on-target efficiency and off-target prediction. Universal K-Sites adds a critical safety layer by incorporating **pathway-aware pleiotropy scoring** that considers both GO term relationships and KEGG pathway connections to identify genes with minimal biological impact outside the target pathway.
+### Non-Pleiotropic Gene Identification
+- **Multi-database integration**: Queries GO.org, UniProt, and KEGG simultaneously
+- **Pleiotropy scoring algorithm**: Exponential decay scoring based on number of associated Biological Process GO terms
+- **Evidence-based filtering**: Distinguishes experimental evidence (IDA, IMP, IGI) from computational predictions (IEA)
+- **Cross-species validation**: Verifies gene specificity across model organisms (human, mouse, fly, worm)
+- **Customizable thresholds**: User controls acceptable pleiotropy level (0-10 scale)
+- **Weighted ranking**: Combines specificity, evidence quality, literature support, and conservation scores
 
-### **Key Features**
-- 🧬 **GO Term-Based Target Selection**: Find genes associated with specific biological processes
-- 📊 **Pleiotropy Scoring**: Quantitative assessment of gene interconnectedness (GO-based + pathway-based)
-- 🛡️ **Pathway-Aware Filtering**: Flag gRNAs with off-targets in same KEGG pathways as target genes
-- 📈 **Comprehensive Metrics**: Doench 2016 on-target scores + CFD off-target predictions
-- 🌐 **Neo4j Integration**: Graph-based pathway analysis for enhanced safety
-- 📄 **Rich Reporting**: Interactive HTML reports with literature context
+### RAG-Based Phenotype Prediction
+- **Real-time PubMed integration**: NCBI Entrez API queries
+- **Targeted searches**: Gene knockout/deletion studies, mutant phenotype reports, viability assessments, CRISPR guide literature
+- **Smart query construction**: Multiple query strategies per gene
+- **Abstract and full-text retrieval**: PMC Open Access integration
+- **Batch processing**: Efficient multi-gene analysis
+- **Semantic embeddings**: SentenceTransformer (all-MiniLM-L6-v2)
+- **Vector search**: FAISS L2 distance indexing
+- **Adaptive retrieval**: Relevance threshold filtering, diversity weighting
+- **Phenotype extraction & classification**: NLP pattern matching with severity categorization (LETHAL, SEVERE, MODERATE, MILD, UNKNOWN)
+- **Risk assessment**: CRITICAL/HIGH/MEDIUM/LOW/UNKNOWN classification
 
-## 🏗️ **Architecture**
+### Integrated Workflow
+- **End-to-end pipeline**: From gene selection to experimental recommendation
+- **Pathway-aware off-target filtering**: Prevents disruption of critical pathways
+- **Publication-ready HTML reports**: Comprehensive analysis with recommendations
+- **Multiple output formats**: CSV, FASTA, and HTML reports
 
-The system is organized into modular components:
-
-```
-k_sites/
-├── cli.py                    # Command-line interface
-├── config.py                 # Hierarchical configuration system
-├── data_retrieval/          # GO/organism data fetching
-│   ├── organism_resolver.py
-│   └── go_gene_mapper.py
-├── gene_analysis/           # Pleiotropy scoring
-│   └── pleiotropy_scorer.py
-├── crispr_design/           # gRNA design algorithms
-│   └── guide_designer.py
-├── neo4j/                   # Graph database integration
-│   ├── graph_client.py
-│   └── ingest_kegg.py
-├── rag_system/              # Literature context
-│   └── literature_context.py
-├── workflow/                # Pipeline orchestration
-│   └── pipeline.py
-└── reporting/               # HTML report generation
-    └── report_generator.py
-```
-
-## 🚀 **Installation**
+## 🛠️ Installation
 
 ### Prerequisites
 - Python 3.8+
-- Neo4j (optional, for pathway-aware analysis)
-- NCBI account with API key (recommended)
+- Git
+- Docker (for Neo4j graph database, optional)
 
-### Quick Start
+### Setup
+
+1. **Clone the repository:**
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/K-sites.git
-cd K-sites
+git clone https://github.com/yourusername/k-sites.git
+cd k-sites
+```
 
-# Install the package
+2. **Install the package:**
+```bash
 pip install -e .
-
-# Set required environment variable
-export NCBI_EMAIL=your.email@example.com
 ```
 
-### Optional: Neo4j Setup (for pathway-aware analysis)
+3. **Set up environment variables:**
 ```bash
-# Start Neo4j container
-docker run -d --name neo4j-ksites \
-  -p 7687:7687 -p 7474:7474 \
-  -e NEO4J_AUTH=neo4j/your_secure_password \
-  neo4j:5
-
-# Ingest KEGG pathways for human
-python -m k_sites.neo4j.ingest_kegg --taxid 9606 --organism "Homo sapiens"
+export NCBI_EMAIL="your.email@example.com"  # Required for NCBI API calls
+export NCBI_API_KEY="your_ncbi_api_key"     # Optional but recommended for higher rate limits
 ```
 
-## 🛠️ **Usage**
+### Optional: Neo4j Graph Database Setup
 
-### Basic Command
+For pathway-aware analysis, you can optionally set up the Neo4j database:
+
+1. **Install Docker** (if not already installed)
+
+2. **Start Neo4j container:**
+```bash
+docker run -d --name neo4j-ksites -p 7687:7687 -p 7474:7474 -e NEO4J_AUTH=neo4j/password neo4j:latest
+```
+
+3. **Ingest KEGG pathway data:**
+```bash
+python -m k_sites.neo4j.ingest_kegg --taxid 9606
+```
+
+## 🚀 Usage
+
+### Command Line Interface
+
+Basic usage:
 ```bash
 k-sites --go-term GO:0006281 --organism "Homo sapiens" --output report.html
 ```
 
-### Advanced Options
+Advanced usage with all options:
 ```bash
-# With custom pleiotropy threshold
-k-sites --go-term GO:0006281 --organism "Homo sapiens" --output report.html --max-pleiotropy 2
-
-# Force GO-only mode (disable Neo4j even if available)
-k-sites --go-term GO:0006281 --organism "Homo sapiens" --output report.html --no-graph
-
-# Use TaxID directly
-k-sites --go-term GO:0006281 --organism 9606 --output report.html
+k-sites --go-term GO:0006281 --organism 9606 --output results/report.html \
+        --use-graph \
+        --max-pleiotropy 5 \
+        --evidence-filter experimental \
+        --species-validation 9606 10090 10116 \
+        --predict-phenotypes
 ```
 
-### Configuration
-Create `k-sites.yaml` in your working directory or `~/.openclaw/workspace/k-sites/config/`:
+### Programmatic API
 
-```yaml
-neo4j:
-  uri: "bolt://localhost:7687"
-  user: "neo4j"
-  password: "${NEO4J_PASSWORD}"
+```python
+from k_sites.workflow.pipeline import run_k_sites_pipeline
 
-ncbi:
-  email: "your.email@example.com"
-  api_key: "${NCBI_API_KEY}"
+results = run_k_sites_pipeline(
+    go_term="GO:0006281",  # DNA repair
+    organism="Homo sapiens",
+    max_pleiotropy=3,
+    use_graph=True,
+    evidence_filter="experimental",
+    species_validation=["9606", "10090"],
+    predict_phenotypes=True
+)
 
-pipeline:
-  max_pleiotropy: 3
-  use_graph: true
-  cache_dir: "~/.openclaw/workspace/k-sites/.cache"
-
-reporting:
-  include_literature: true
-  max_pubmed_results: 5
+# Generate report
+from k_sites.reporting.report_generator import generate_html_report
+generate_html_report(results, "output_report.html")
 ```
 
-## 📊 **Output**
+## ⚙️ Configuration
 
-The platform generates comprehensive HTML reports including:
+### Environment Variables
+- `NCBI_EMAIL`: Your email address for NCBI API compliance (required)
+- `NCBI_API_KEY`: NCBI API key for higher rate limits (optional)
+- `NEO4J_URI`: Neo4j connection URI (default: bolt://localhost:7687)
+- `NEO4J_USER`: Neo4j username (default: neo4j)
+- `NEO4J_PASSWORD`: Neo4j password (default: password)
 
-- **Executive Summary**: Genes screened and passed pleiotropy filter
-- **Gene Table**: Pleiotropy scores and descriptions for target genes
-- **gRNA Table**: Designed guides with Doench scores and off-target analysis
-- **Biological Context**: PubMed abstracts for each target gene
-- **Pathway Context**: When Neo4j is available, pathway neighbors and conflicts
-- **Download Options**: CSV export of all gRNA designs
+### Parameters
 
-## 🔬 **Biological Rationale**
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `--go-term` | GO term to analyze (e.g., "GO:0006281") | Required |
+| `--organism` | Organism as TaxID or scientific name | Required |
+| `--output` | Output HTML report path | Required |
+| `--use-graph` | Enable Neo4j pathway analysis | Enabled if available |
+| `--max-pleiotropy` | Maximum allowed pleiotropy score | 3 |
+| `--evidence-filter` | Evidence type filter | "experimental" |
+| `--species-validation` | Species for cross-validation | 9606 10090 10116 7227 6239 |
+| `--predict-phenotypes` | Enable RAG-based phenotype prediction | Disabled |
 
-### Pleiotropy Scoring
-The system combines two metrics:
-1. **GO-Based Score**: `(GO_BP_term_count - 1)` - measures functional complexity
-2. **Pathway-Based Score**: Node degree in KEGG pathway graph - measures connectivity
+## 🏗️ Architecture
 
-**Final Score**: `(GO_BP_count - 1) + (KEGG_pathway_degree)`
+The K-Sites platform consists of several interconnected modules:
 
-### Pathway-Aware Filtering
-gRNAs with off-targets in the same KEGG pathway as the target gene are flagged as potentially problematic, since they might affect related biological processes.
+```
+k_sites/
+├── data_retrieval/     # GO term mapping, organism resolution
+├── gene_analysis/      # Pleiotropy scoring
+├── crispr_design/      # gRNA design and scoring
+├── neo4j/             # Graph database integration
+├── rag_system/        # Literature-based phenotype prediction
+├── workflow/          # Pipeline orchestration
+├── reporting/         # Report generation
+└── tests/             # Unit tests
+```
 
-## 🧪 **Testing**
+## 🧪 Testing
 
-Run the integrated health check:
+Run the test suite:
 ```bash
-python -m k_sites.healthcheck
+python -m pytest tests/
 ```
 
-Run the full demo:
-```bash
-python -m demo.run_demo
-```
+## 📄 License
 
-## 🤝 **Developers**
+MIT License - see the LICENSE file for details.
 
-- **Kanaka KK** - Lead Architect
-- **Sandip Garai** - Neo4j Graph Integration Specialist  
-- **Jeevan C** - CRISPR Algorithm Developer
-- **Tanzil Fatima** - Bioinformatics Analyst
+## 🤝 Contributing
 
-## 📚 **References**
+Contributions are welcome! Please feel free to submit a Pull Request.
 
-- Doench et al. (2016). Optimized sgRNA design to maximize activity and minimize off-target effects of CRISPR-Cas9. Nature Biotechnology.
-- Garcia-Alonso et al. (2021). Benchmarking CRISPR/Cas9 sgRNA efficiency tools. Bioinformatics.
-- Kanehisa & Goto (2000). KEGG: Kyoto Encyclopedia of Genes and Genomes. Nucleic Acids Research.
+## 🐛 Issues
 
-## 📄 **License**
+If you encounter any issues, please file them in the Issues section of the repository.
 
-MIT License - see LICENSE file for details.
+## 🙏 Acknowledgments
 
-## 🚀 **Quick Example**
-
-```bash
-# Find specific genes in DNA repair pathway
-k-sites --go-term GO:0006281 --organism "Homo sapiens" --output dna_repair_guides.html
-
-# Target oxidative stress response
-k-sites --go-term GO:0006979 --organism "Mus musculus" --output oxidative_stress_guides.html
-```
-
----
-
-**Universal K-Sites** transforms CRISPR guide RNA design from a trial-and-error process to a rational, pathway-aware design approach that prioritizes specificity and safety.
+- Thanks to the GO Consortium for gene ontology resources
+- Thanks to KEGG for pathway data
+- Thanks to NCBI for biological databases
+- Thanks to the Neo4j community for graph database technology

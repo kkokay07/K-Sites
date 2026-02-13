@@ -178,6 +178,17 @@ def run_k_sites_analysis(args):
         logger.info(f"Generating HTML report at {args.output}")
         generate_html_report(results, args.output)
         
+        # Print summary statistics
+        stats = results.get("statistics", {})
+        if stats:
+            print(f"\nAnalysis Summary:")
+            print(f"- Total genes screened: {stats.get('total_genes_screened', 0)}")
+            print(f"- Genes passed filter: {stats.get('genes_passed_filter', 0)}")
+            print(f"- Average pleiotropy score: {stats.get('avg_pleiotropy', 0):.2f}")
+            most_specific = stats.get('most_specific_gene', {})
+            if most_specific:
+                print(f"- Most specific gene: {most_specific.get('symbol', 'N/A')} (score: {most_specific.get('specificity_score', 0):.2f})")
+        
         logger.info("Analysis completed successfully!")
         
     except ImportError as e:
@@ -202,11 +213,13 @@ Examples:
   %(prog)s --go-term GO:0006281 --organism "Homo sapiens" --output report.html
   %(prog)s --go-term GO:0006281 --organism 9606 --output report.html --use-graph
   %(prog)s --go-term GO:0006281 --organism hsa --output results/report.html --no-graph
+  %(prog)s --go-term-search "DNA repair" --organism "Homo sapiens" --output report.html
 
 Note:
   - Organism can be NCBI TaxID (e.g., 9606) or scientific name (e.g., "Homo sapiens")
   - GO term format: GO:0000000 (7 digits after GO:)
   - Graph mode uses Neo4j KEGG pathway data for enhanced pleiotropy assessment
+  - Use --go-term-search to get GO term suggestions with gene count statistics
         """
     )
     
@@ -245,8 +258,10 @@ Note:
     parser.add_argument(
         '--max-pleiotropy',
         type=int,
-        default=3,
-        help='Maximum allowed pleiotropy score (default: 3)'
+        default=10,
+        choices=range(0, 11),
+        metavar="[0-10]",
+        help='Maximum allowed OTHER BP GO terms (0-10 scale, default: 10). Genes with more BP terms than this are excluded.'
     )
     
     parser.add_argument(
@@ -268,8 +283,34 @@ Note:
         help='Enable RAG-based phenotype prediction using literature mining (default: false)'
     )
     
+    parser.add_argument(
+        '--go-term-search',
+        type=str,
+        help='Search for GO terms with autocomplete functionality and gene count statistics (e.g., "DNA repair")'
+    )
+    
     # Allow the use_graph flag to be set by default based on Neo4j availability
     args = parser.parse_args()
+    
+    # Handle GO term search functionality
+    if args.go_term_search:
+        from k_sites.data_retrieval.go_autocomplete import get_go_term_suggestions, get_gene_count_for_go_term
+        print(f"Searching for GO terms related to: '{args.go_term_search}'")
+        suggestions = get_go_term_suggestions(args.go_term_search, limit=10)
+        
+        if suggestions:
+            print(f"\nTop GO term suggestions for '{args.go_term_search}':")
+            print("-" * 80)
+            print(f"{'GO ID':<12} {'Term Name':<30} {'Genes in Human':<15} {'Aspect':<8}")
+            print("-" * 80)
+            
+            for suggestion in suggestions:
+                gene_count = get_gene_count_for_go_term(suggestion['id'], '9606')  # Human taxid
+                print(f"{suggestion['id']:<12} {suggestion['name'][:30]:<30} {gene_count:<15} {suggestion['aspect']:<8}")
+        else:
+            print(f"No GO terms found matching '{args.go_term_search}'")
+        
+        return  # Exit after showing search results
     
     # If use_graph is still default (True), check Neo4j availability
     if args.use_graph:

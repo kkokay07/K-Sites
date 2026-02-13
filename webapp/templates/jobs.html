@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+
+{% block title %}Job History - K-Sites{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="fas fa-list me-2 text-primary"></i>Analysis Job History</h2>
+    <a href="/" class="btn btn-primary">
+        <i class="fas fa-plus me-2"></i>New Analysis
+    </a>
+</div>
+
+<!-- Filters -->
+<div class="card mb-4">
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-4">
+                <label class="form-label">Filter by Status</label>
+                <select class="form-select" id="statusFilter">
+                    <option value="">All Statuses</option>
+                    <option value="completed">Completed</option>
+                    <option value="running">Running</option>
+                    <option value="pending">Pending</option>
+                    <option value="failed">Failed</option>
+                </select>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Search</label>
+                <input type="text" class="form-control" id="searchFilter" placeholder="Search by organism or GO term...">
+            </div>
+            <div class="col-md-4 d-flex align-items-end">
+                <button class="btn btn-outline-secondary" id="refreshBtn">
+                    <i class="fas fa-sync me-2"></i>Refresh
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Jobs Table -->
+<div class="card">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0" id="jobsTable">
+                <thead class="table-light">
+                    <tr>
+                        <th>Job ID</th>
+                        <th>Organism</th>
+                        <th>GO Term</th>
+                        <th>Genes</th>
+                        <th>gRNAs</th>
+                        <th>Status</th>
+                        <th>Created</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="jobsTableBody">
+                    <tr>
+                        <td colspan="8" class="text-center py-5 text-muted">
+                            <div class="spinner-border mb-3" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <p>Loading jobs...</p>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Empty State (hidden by default) -->
+<div id="emptyState" class="text-center py-5" style="display: none;">
+    <div class="display-1 text-muted mb-3">
+        <i class="fas fa-inbox"></i>
+    </div>
+    <h4 class="text-muted">No Jobs Found</h4>
+    <p class="text-muted">Start your first analysis to see results here.</p>
+    <a href="/" class="btn btn-primary">
+        <i class="fas fa-play me-2"></i>Start New Analysis
+    </a>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    loadJobs();
+    
+    // Setup filters
+    document.getElementById('statusFilter')?.addEventListener('change', filterJobs);
+    document.getElementById('searchFilter')?.addEventListener('input', debounce(filterJobs, 300));
+    document.getElementById('refreshBtn')?.addEventListener('click', loadJobs);
+});
+
+let allJobs = [];
+
+async function loadJobs() {
+    const tbody = document.getElementById('jobsTableBody');
+    tbody.innerHTML = `
+        <tr>
+            <td colspan="8" class="text-center py-5 text-muted">
+                <div class="spinner-border mb-3" role="status"></div>
+                <p>Loading jobs...</p>
+            </td>
+        </tr>
+    `;
+    
+    try {
+        const response = await fetch('/api/jobs');
+        const data = await response.json();
+        
+        allJobs = data.jobs || [];
+        renderJobs(allJobs);
+        
+    } catch (error) {
+        console.error('Error loading jobs:', error);
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="8" class="text-center py-5 text-danger">
+                    <i class="fas fa-exclamation-circle fa-2x mb-3"></i>
+                    <p>Error loading jobs. Please try again.</p>
+                </td>
+            </tr>
+        `;
+    }
+}
+
+function renderJobs(jobs) {
+    const tbody = document.getElementById('jobsTableBody');
+    const emptyState = document.getElementById('emptyState');
+    
+    if (jobs.length === 0) {
+        tbody.innerHTML = '';
+        emptyState.style.display = 'block';
+        return;
+    }
+    
+    emptyState.style.display = 'none';
+    
+    tbody.innerHTML = jobs.map(job => `
+        <tr data-status="${job.status}" data-search="${(job.organism + ' ' + job.go_term + ' ' + (job.go_term_name || '')).toLowerCase()}">
+            <td>
+                <code class="small">${job.id.substring(0, 8)}...</code>
+            </td>
+            <td>${job.organism}</td>
+            <td>
+                ${job.go_term}
+                ${job.go_term_name ? `<br><small class="text-muted">${job.go_term_name}</small>` : ''}
+            </td>
+            <td>${job.genes_processed !== null ? job.genes_processed : '-'}</td>
+            <td>${job.total_grnas !== null ? job.total_grnas : '-'}</td>
+            <td>
+                <span class="status-badge status-${job.status}">${job.status.toUpperCase()}</span>
+            </td>
+            <td>
+                <small class="text-muted">${formatDate(job.created_at)}</small>
+            </td>
+            <td>
+                <a href="/results/${job.id}" class="btn btn-sm btn-primary">
+                    <i class="fas fa-eye"></i>
+                </a>
+            </td>
+        </tr>
+    `).join('');
+}
+
+function filterJobs() {
+    const statusFilter = document.getElementById('statusFilter').value;
+    const searchFilter = document.getElementById('searchFilter').value.toLowerCase();
+    
+    const filtered = allJobs.filter(job => {
+        const matchesStatus = !statusFilter || job.status === statusFilter;
+        const searchText = (job.organism + ' ' + job.go_term + ' ' + (job.go_term_name || '')).toLowerCase();
+        const matchesSearch = !searchFilter || searchText.includes(searchFilter);
+        
+        return matchesStatus && matchesSearch;
+    });
+    
+    renderJobs(filtered);
+}
+
+function formatDate(dateString) {
+    if (!dateString) return '-';
+    const date = new Date(dateString);
+    return date.toLocaleString();
+}
+
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+}
+</script>
+{% endblock %}

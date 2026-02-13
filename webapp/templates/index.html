@@ -1,0 +1,366 @@
+{% extends "base.html" %}
+
+{% block title %}New Analysis - K-Sites{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-10 mx-auto">
+        <!-- Header -->
+        <div class="text-center mb-5">
+            <h1 class="display-5 fw-bold text-primary">
+                <i class="fas fa-dna me-3"></i>K-Sites
+            </h1>
+            <p class="lead text-muted">Suite for Knock-out/down Studies</p>
+            <p class="text-secondary">Advanced CRISPR Guide RNA Design Platform with Pathway-Aware Analysis</p>
+        </div>
+        
+        <form id="analysisForm" class="needs-validation" novalidate>
+            
+            <!-- User Email (for notifications) -->
+            <div class="card mb-4">
+                <div class="card-header bg-info text-white">
+                    <h5 class="mb-0">
+                        <span class="step-number active">1</span>
+                        User Information (Optional)
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label for="user_email" class="form-label">
+                            <i class="fas fa-envelope me-2"></i>Email Address
+                        </label>
+                        <input type="email" 
+                               class="form-control" 
+                               id="user_email" 
+                               name="user_email"
+                               placeholder="your@email.com">
+                        <div class="form-text">
+                            <i class="fas fa-info-circle me-1"></i>
+                            Optional: Receive email notifications when analysis completes
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Step 1: Organism Selection -->
+            <div class="card mb-4">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">
+                        <span class="step-number active">2</span>
+                        Select Organism
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <!-- Kingdom Selection -->
+                    <div class="mb-4">
+                        <label class="form-label fw-bold">
+                            <i class="fas fa-sitemap me-2"></i>1. Choose Kingdom/Category
+                        </label>
+                        <div id="kingdomContainer" class="row g-3">
+                            <!-- Kingdoms loaded dynamically -->
+                            <div class="text-center py-3">
+                                <div class="spinner-border spinner-border-sm text-primary"></div>
+                                <span class="ms-2">Loading categories...</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Species Selection -->
+                    <div id="speciesSection" class="mb-4" style="display: none;">
+                        <label class="form-label fw-bold">
+                            <i class="fas fa-microscope me-2"></i>2. Select Species
+                        </label>
+                        
+                        <!-- Selected kingdom display -->
+                        <div id="selectedKingdomDisplay" class="alert alert-info d-flex align-items-center mb-3">
+                            <span id="selectedKingdomName"></span>
+                            <button type="button" class="btn btn-sm btn-outline-primary ms-auto" onclick="resetKingdomSelection()">
+                                <i class="fas fa-undo me-1"></i>Change
+                            </button>
+                        </div>
+                        
+                        <!-- Search/Filter -->
+                        <div class="mb-3">
+                            <div class="input-group">
+                                <span class="input-group-text"><i class="fas fa-search"></i></span>
+                                <input type="text" 
+                                       class="form-control" 
+                                       id="speciesSearch" 
+                                       placeholder="Search all KEGG species (e.g., 'mouse', 'E. coli', 'zebrafish')...">
+                            </div>
+                            <div class="form-text">
+                                <i class="fas fa-info-circle me-1"></i>
+                                Type to search through all organisms from KEGG database
+                            </div>
+                        </div>
+                        
+                        <!-- Species list -->
+                        <div id="speciesList" class="list-group" style="max-height: 300px; overflow-y: auto;">
+                            <!-- Species loaded dynamically -->
+                        </div>
+                    </div>
+                    
+                    <!-- Selected organism display -->
+                    <div id="selectedOrganismDisplay" class="alert alert-success" style="display: none;">
+                        <div class="d-flex align-items-center">
+                            <i class="fas fa-check-circle me-2 fa-lg"></i>
+                            <div>
+                                <strong>Selected:</strong> <span id="selectedOrganismName"></span>
+                                <br><small class="text-muted">TaxID: <span id="selectedOrganismTaxid"></span></small>
+                            </div>
+                            <button type="button" class="btn btn-sm btn-outline-success ms-auto" onclick="resetOrganismSelection()">
+                                <i class="fas fa-edit me-1"></i>Change
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <input type="hidden" id="organism" name="organism" required>
+                    <input type="hidden" id="taxid" name="taxid">
+                </div>
+            </div>
+            
+            <!-- Step 2: GO Term Selection -->
+            <div class="card mb-4">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">
+                        <span class="step-number">3</span>
+                        Select GO Term
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <!-- GO Category Selection -->
+                    <div class="mb-4">
+                        <label class="form-label fw-bold">
+                            <i class="fas fa-sitemap me-2"></i>1. Choose GO Category
+                        </label>
+                        <div id="goCategoryContainer" class="row g-3">
+                            <!-- Categories loaded dynamically -->
+                            <div class="text-center py-3">
+                                <div class="spinner-border spinner-border-sm text-primary"></div>
+                                <span class="ms-2">Loading categories...</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Alternative: Direct GO ID input -->
+                    <div class="text-center mb-3">
+                        <span class="text-muted">— OR enter directly —</span>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Enter GO Term ID</label>
+                        <input type="text" 
+                               class="form-control" 
+                               id="go_term_direct" 
+                               placeholder="GO:0006281"
+                               pattern="GO:\d{7}">
+                        <div class="form-text">Format: GO: followed by 7 digits</div>
+                    </div>
+                    
+                    <!-- GO Terms Selection -->
+                    <div id="goTermsSection" class="mb-4" style="display: none;">
+                        <label class="form-label fw-bold">
+                            <i class="fas fa-list me-2"></i>2. Select GO Term
+                        </label>
+                        
+                        <!-- Selected category display -->
+                        <div id="selectedCategoryDisplay" class="alert alert-info d-flex align-items-center mb-3">
+                            <span id="selectedCategoryName"></span>
+                            <button type="button" class="btn btn-sm btn-outline-primary ms-auto" onclick="resetCategorySelection()">
+                                <i class="fas fa-undo me-1"></i>Change
+                            </button>
+                        </div>
+                        
+                        <!-- Search/Filter -->
+                        <div class="mb-3">
+                            <div class="input-group">
+                                <span class="input-group-text"><i class="fas fa-search"></i></span>
+                                <input type="text" 
+                                       class="form-control" 
+                                       id="goTermSearch" 
+                                       placeholder="Search all GO terms (e.g., 'DNA repair', 'kinase', 'nucleus')...">
+                            </div>
+                            <div class="form-text">
+                                <i class="fas fa-info-circle me-1"></i>
+                                Type at least 2 characters to search thousands of GO terms
+                            </div>
+                        </div>
+                        
+                        <!-- GO Terms list -->
+                        <div id="goTermsList" class="list-group" style="max-height: 300px; overflow-y: auto;">
+                            <!-- Terms loaded dynamically -->
+                        </div>
+                    </div>
+                    
+                    <!-- Selected GO term display -->
+                    <div id="selectedGoTermDisplay" class="alert alert-success" style="display: none;">
+                        <div class="d-flex align-items-center">
+                            <i class="fas fa-check-circle me-2 fa-lg"></i>
+                            <div>
+                                <strong>Selected:</strong> <span id="selectedGoTermId"></span>
+                                <br><span id="selectedGoTermName" class="text-muted"></span>
+                            </div>
+                            <button type="button" class="btn btn-sm btn-outline-success ms-auto" onclick="resetGoTermSelection()">
+                                <i class="fas fa-edit me-1"></i>Change
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <input type="hidden" id="go_term" name="go_term" required>
+                    <input type="hidden" id="go_term_name" name="go_term_name">
+                </div>
+            </div>
+            
+            <!-- Step 3: Database Selection -->
+            <div class="card mb-4">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">
+                        <span class="step-number">4</span>
+                        Select Databases
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div id="databaseContainer" class="row g-3">
+                        <!-- Databases loaded dynamically -->
+                    </div>
+                    <div class="form-text mt-2">
+                        <i class="fas fa-info-circle me-1"></i>
+                        QuickGO is always used. Enable Neo4j for pathway-aware off-target filtering.
+                    </div>
+                    <div id="neo4jWarning" class="alert alert-warning mt-3" style="display: none;">
+                        <i class="fas fa-exclamation-triangle me-2"></i>
+                        <strong>Neo4j not available.</strong> Pathway analysis requires Neo4j database setup.
+                        <a href="/help#neo4j-setup" class="alert-link">Learn more</a>.
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Step 4: Analysis Parameters -->
+            <div class="card mb-4">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">
+                        <span class="step-number">5</span>
+                        Analysis Parameters
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="max_genes" class="form-label">
+                                <i class="fas fa-list-ol me-2"></i>Maximum Genes
+                                <a href="/help#max-genes" class="text-decoration-none" target="_blank">
+                                    <i class="fas fa-question-circle text-muted"></i>
+                                </a>
+                            </label>
+                            <input type="number" 
+                                   class="form-control" 
+                                   id="max_genes" 
+                                   name="max_genes"
+                                   value="10"
+                                   min="1"
+                                   max="50"
+                                   required>
+                            <div class="form-text">
+                                Limit genes to analyze (1-50). Lower = faster results.
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-6 mb-3">
+                            <label for="max_pleiotropy" class="form-label">
+                                <i class="fas fa-filter me-2"></i>Max Pleiotropy Score
+                                <a href="/help#pleiotropy" class="text-decoration-none" target="_blank">
+                                    <i class="fas fa-question-circle text-muted"></i>
+                                </a>
+                            </label>
+                            <input type="number" 
+                                   class="form-control" 
+                                   id="max_pleiotropy" 
+                                   name="max_pleiotropy"
+                                   value="5"
+                                   min="1"
+                                   max="20"
+                                   required>
+                            <div class="form-text">
+                                Higher = more pleiotropic genes. Lower = more specific targets.
+                                <a href="/help#pleiotropy" target="_blank">Learn more</a>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="evidence_filter" class="form-label">
+                                <i class="fas fa-check-double me-2"></i>Evidence Filter
+                            </label>
+                            <select class="form-select" id="evidence_filter" name="evidence_filter">
+                                <option value="experimental">Experimental only (recommended)</option>
+                                <option value="computational">Computational only</option>
+                                <option value="all">All evidence types</option>
+                            </select>
+                        </div>
+                        
+                        <div class="col-md-6 mb-3">
+                            <div class="form-check form-switch mt-4">
+                                <input class="form-check-input" type="checkbox" id="predict_phenotypes" name="predict_phenotypes">
+                                <label class="form-check-label" for="predict_phenotypes">
+                                    <i class="fas fa-brain me-2"></i>Enable RAG Phenotype Prediction
+                                    <a href="/help#rag-prediction" class="text-decoration-none" target="_blank">
+                                        <i class="fas fa-question-circle text-muted"></i>
+                                    </a>
+                                </label>
+                                <div class="form-text">
+                                    Literature-based prediction (adds ~1 min/gene)
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Gene Count Preview -->
+                    <div id="geneCountPreview" class="alert alert-info mt-3" style="display: none;">
+                        <div class="d-flex align-items-center justify-content-between mb-2">
+                            <div>
+                                <i class="fas fa-dna me-2"></i>
+                                <strong>Gene Count:</strong> <span id="geneCountValue">-</span> genes found
+                            </div>
+                            <button type="button" class="btn btn-sm btn-outline-primary" id="refreshGeneCount">
+                                <i class="fas fa-sync me-1"></i>Refresh
+                            </button>
+                        </div>
+                        <div id="estimatedTime" class="mb-2" style="display: none;">
+                            <i class="fas fa-clock me-2"></i>
+                            <strong>Estimated Time:</strong> <span id="estimatedTimeValue">-</span>
+                        </div>
+                        <div id="geneCountWarning" class="text-warning" style="display: none;">
+                            <i class="fas fa-exclamation-triangle me-1"></i>
+                            <span id="geneCountWarningText"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Validation Alerts -->
+            <div id="validationAlerts"></div>
+            
+            <!-- Submit Button -->
+            <div class="d-grid gap-2">
+                <button type="submit" class="btn btn-primary btn-lg" id="startAnalysis">
+                    <i class="fas fa-play me-2"></i>Start Analysis
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Loading Overlay -->
+<div class="spinner-overlay" id="loadingOverlay" style="display: none;">
+    <div class="text-center">
+        <div class="spinner-border text-primary mb-3" style="width: 4rem; height: 4rem;" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <h4 class="text-primary" id="loadingText">Validating parameters...</h4>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/main.js') }}"></script>
+{% endblock %}

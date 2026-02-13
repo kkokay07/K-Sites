@@ -62,6 +62,52 @@ def run_k_sites_pipeline(
                     "phenotype_prediction": {...},  # Present if predict_phenotypes=True
                     "guides": [...]
                 }
+            ],
+            "statistics": {
+                "total_genes_screened": 45,
+                "genes_passed_filter": 12,
+                "avg_pleiotropy": 1.8,
+                "most_specific_gene": {...},
+                "least_specific_gene": {...}
+            }
+        }
+    """
+    """
+    Execute the complete K-Sites pipeline.
+    
+    Args:
+        go_term: GO term identifier (e.g., "GO:0006281")
+        organism: Organism identifier (TaxID or scientific name)
+        max_pleiotropy: Maximum allowed pleiotropy score (default: 3)
+        use_graph: Whether to use Neo4j graph functionality (default: True)
+        evidence_filter: Type of evidence to include ("experimental", "computational", "all")
+        species_validation: List of species taxids for cross-species validation
+        predict_phenotypes: Whether to predict knockout phenotypes using RAG (default: False)
+        
+    Returns:
+        Dictionary with pipeline results:
+        {
+            "metadata": {
+                "go_term": "...",
+                "organism": "...",
+                "timestamp": "...",
+                "max_pleiotropy": 3,
+                "evidence_filter": "experimental",
+                "species_validation": [...],
+                "predict_phenotypes": false
+            },
+            "genes": [
+                {
+                    "symbol": "BRCA1",
+                    "pleiotropy_score": 2,
+                    "specificity_score": 8.0,
+                    "evidence_quality": 0.9,
+                    "conservation_score": 0.8,
+                    "composite_score": 8.5,
+                    "cross_species_validation": {...},
+                    "phenotype_prediction": {...},  # Present if predict_phenotypes=True
+                    "guides": [...]
+                }
             ]
         }
     """
@@ -88,10 +134,18 @@ def run_k_sites_pipeline(
         genes = get_genes_for_go_term(go_term, taxid, evidence_filter)
         logger.info(f"Found {len(genes)} genes associated with GO term {go_term} with {evidence_filter} evidence")
         
-        # Step 3: Rank genes by specificity
-        logger.info("Step 3: Ranking genes by specificity...")
+        # Step 3: Rank genes by specificity using multi-database integration
+        logger.info("Step 3: Ranking genes by specificity (multi-database query)...")
         from k_sites.gene_analysis.pleiotropy_scorer import rank_genes_by_specificity
-        ranked_genes = rank_genes_by_specificity(genes, taxid, evidence_filter)
+        ranked_genes = rank_genes_by_specificity(
+            genes, 
+            taxid,
+            target_go_term=go_term,
+            evidence_filter=evidence_filter,
+            include_literature=True,  # Real PubMed queries
+            include_cross_species=species_validation is not None,
+            max_pleiotropy_threshold=max_pleiotropy
+        )
         logger.info(f"Ranked {len(ranked_genes)} genes by specificity")
         
         # Step 4: Process each gene
@@ -152,16 +206,21 @@ def run_k_sites_pipeline(
                     logger.debug(f"Applying pathway-aware filtering for {gene_symbol}...")
                     guides = _filter_pathway_conflicts(guides, gene_symbol, taxid)
                 
-                # g. Determine safety recommendation based on phenotype and pleiotropy
-                safety_recommendation = "Standard KO acceptable"
-                if phenotype_prediction:
-                    risk_level = phenotype_prediction.risk_level.value if hasattr(phenotype_prediction.risk_level, 'value') else str(phenotype_prediction.risk_level)
-                    if risk_level in ["CRITICAL", "HIGH"]:
-                        safety_recommendation = "Conditional KO/CRISPRi preferred"
-                    elif pleiotropy_score > 5:
-                        safety_recommendation = "Consider heterozygous KO"
+                # g. Generate comprehensive safety recommendation using the safety recommender
+                from k_sites.workflow.safety_recommender import SafetyRecommender, get_safety_recommendation
                 
-                # h. Add gene to results with comprehensive scoring
+                safety_rec = get_safety_recommendation(
+                    gene_symbol=gene_symbol,
+                    pleiotropy_score=pleiotropy_score,
+                    phenotype_prediction=phenotype_prediction.__dict__ if phenotype_prediction else None,
+                    guides=[g.__dict__ if hasattr(g, '__dict__') else g for g in (guides or [])],
+                    cross_species_validation=cross_species_validation,
+                    literature_support=gene_info.get("literature_support", 0.5)
+                )
+                
+                logger.info(f"Safety recommendation for {gene_symbol}: {safety_rec.safety_level.value} - {safety_rec.primary_recommendation.value}")
+                
+                # Store safety recommendation in gene result
                 gene_result = {
                     "symbol": gene_symbol,
                     "pleiotropy_score": pleiotropy_score,
@@ -176,7 +235,17 @@ def run_k_sites_pipeline(
                     "iea_evidence_count": gene_info.get("iea_evidence_count", 0),
                     "cross_species_validation": cross_species_validation,
                     "phenotype_prediction": phenotype_prediction.__dict__ if phenotype_prediction else None,
-                    "safety_recommendation": safety_recommendation,
+                    "safety_recommendation": {
+                        "safety_level": safety_rec.safety_level.value,
+                        "primary_recommendation": safety_rec.primary_recommendation.value,
+                        "alternative_recommendations": [alt.value for alt in safety_rec.alternative_recommendations],
+                        "justification": safety_rec.justification,
+                        "concerns": safety_rec.concerns,
+                        "mitigation_strategies": safety_rec.mitigation_strategies,
+                        "experimental_considerations": safety_rec.experimental_considerations,
+                        "confidence_score": safety_rec.confidence_score
+                    },
+                    "safety_recommendation_object": safety_rec,  # Keep object for report generation
                     "description": gene_info.get("description", ""),
                     "entrez_id": gene_info.get("entrez_id", ""),
                     "guides": guides
@@ -195,6 +264,24 @@ def run_k_sites_pipeline(
         end_time = datetime.now()
         duration = (end_time - start_time).total_seconds()
         
+        # Calculate pipeline statistics
+        statistics = {
+            "total_genes_screened": len(ranked_genes),
+            "genes_passed_filter": len(processed_genes),
+            "avg_pleiotropy": 0.0,
+            "most_specific_gene": None,
+            "least_specific_gene": None
+        }
+        
+        if processed_genes:
+            total_pleiotropy = sum(gene["pleiotropy_score"] for gene in processed_genes)
+            statistics["avg_pleiotropy"] = total_pleiotropy / len(processed_genes)
+            
+            # Find most and least specific genes (lowest and highest pleiotropy scores)
+            sorted_by_pleiotropy = sorted(processed_genes, key=lambda x: x["pleiotropy_score"])
+            statistics["most_specific_gene"] = sorted_by_pleiotropy[0] if sorted_by_pleiotropy else None
+            statistics["least_specific_gene"] = sorted_by_pleiotropy[-1] if sorted_by_pleiotropy else None
+        
         results = {
             "metadata": {
                 "go_term": go_term,
@@ -208,7 +295,8 @@ def run_k_sites_pipeline(
                 "species_validation": species_validation,
                 "predict_phenotypes": predict_phenotypes
             },
-            "genes": processed_genes
+            "genes": processed_genes,
+            "statistics": statistics
         }
         
         logger.info(f"Pipeline completed successfully. Processed {len(processed_genes)} genes out of {len(ranked_genes)} total.")

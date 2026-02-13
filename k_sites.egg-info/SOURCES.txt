@@ -1,3 +1,4 @@
+LICENSE
 MANIFEST.in
 README.md
 requirements.txt
@@ -16,7 +17,9 @@ k_sites/config/__init__.py
 k_sites/crispr_design/__init__.py
 k_sites/crispr_design/guide_designer.py
 k_sites/data_retrieval/__init__.py
+k_sites/data_retrieval/go_autocomplete.py
 k_sites/data_retrieval/go_gene_mapper.py
+k_sites/data_retrieval/multi_database_client.py
 k_sites/data_retrieval/organism_resolver.py
 k_sites/gene_analysis/__init__.py
 k_sites/gene_analysis/pleiotropy_scorer.py
@@ -26,10 +29,16 @@ k_sites/neo4j/ingest_kegg.py
 k_sites/rag_system/__init__.py
 k_sites/rag_system/literature_context.py
 k_sites/reporting/__init__.py
+k_sites/reporting/csv_export.py
+k_sites/reporting/genbank_export.py
 k_sites/reporting/report_generator.py
 k_sites/workflow/__init__.py
 k_sites/workflow/pipeline.py
+k_sites/workflow/safety_recommender.py
 tests/test_cli_integration.py
+tests/test_crispr_design.py
 tests/test_go_gene_mapper.py
+tests/test_non_pleiotropic_features.py
 tests/test_organism_resolver.py
 tests/test_pleiotropy_scorer.py
+tests/test_rag_phenotype.py

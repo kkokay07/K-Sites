@@ -2,29 +2,31 @@
 RAG-Based Phenotype Prediction System for K-Sites
 
 This module predicts knockout phenotypes by mining and semantically analyzing scientific literature.
+Implements comprehensive RAG capabilities with PubMed/PMC integration, semantic embeddings,
+adaptive retrieval, and phenotype extraction/classification.
 """
 
 import logging
 import os
 import requests
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Set
 from pathlib import Path
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 import json
+from collections import defaultdict
 
 # Optional imports for RAG functionality
 try:
     from sentence_transformers import SentenceTransformer
-    from transformers import AutoTokenizer, AutoModel
     import faiss
     import numpy as np
     RAG_AVAILABLE = True
 except ImportError:
     RAG_AVAILABLE = False
-    logging.warning("RAG libraries not available. Install sentence-transformers, transformers, faiss-cpu, and numpy for full functionality.")
+    logging.warning("RAG libraries not available. Install sentence-transformers, faiss-cpu, numpy for full functionality.")
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -53,277 +55,567 @@ class PhenotypePrediction:
     supporting_evidence: List[Dict]
     lethality_stage: Optional[str] = None
     confidence_reasoning: str = ""
+    compensatory_mechanisms: List[str] = field(default_factory=list)
+
+@dataclass
+class LiteratureRecord:
+    pmid: str
+    pmcid: Optional[str]
+    title: str
+    abstract: str
+    full_text: Optional[str]
+    authors: List[str]
+    journal: str
+    publication_date: str
+    doi: Optional[str]
+    keywords: List[str]
+    evidence_quality: str = "unknown"  # high, medium, low, unknown
 
 class LiteratureMiner:
     """
     Handles literature mining from PubMed and PMC Open Access.
+    Implements real-time PubMed integration with NCBI Entrez API.
     """
     
     def __init__(self):
-        self.email = os.getenv('NCBI_EMAIL', 'your.email@example.com')
-        self.api_key = os.getenv('NCBI_API_KEY', '')  # Optional but recommended for higher rate limits
+        self.email = os.getenv('NCBI_EMAIL', 'kkokay07@gmail.com')
+        self.api_key = os.getenv('NCBI_API_KEY', '')
+        self.base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
+        self.pmc_base_url = "https://www.ncbi.nlm.nih.gov/pmc/articles/"
+        self.oai_base_url = "https://www.ncbi.nlm.nih.gov/pmc/oai/oai.cgi"
         
-    def search_pubmed(self, gene_symbol: str, search_type: str = "comprehensive") -> List[Dict]:
+    def _make_request(self, endpoint: str, params: Dict, timeout: int = 30) -> Optional[Dict]:
+        """Make a request to NCBI E-Utilities with rate limiting."""
+        try:
+            if self.api_key:
+                params["api_key"] = self.api_key
+            
+            response = requests.get(self.base_url + endpoint, params=params, timeout=timeout)
+            response.raise_for_status()
+            
+            # Rate limiting - NCBI allows 3 requests/second without API key, 10/second with
+            time.sleep(0.2 if self.api_key else 0.35)
+            
+            return response
+        except Exception as e:
+            logger.error(f"Error in NCBI request: {str(e)}")
+            return None
+    
+    def search_pubmed(self, gene_symbol: str, search_type: str = "comprehensive", 
+                     retmax: int = 100) -> List[LiteratureRecord]:
         """
         Search PubMed for literature related to a gene.
         
         Args:
             gene_symbol: Gene symbol to search for
-            search_type: Type of search ("comprehensive", "knockout", "phenotype", "viability", "crispr")
+            search_type: Type of search ("comprehensive", "knockout", "phenotype", 
+                        "viability", "crispr", "compensatory")
+            retmax: Maximum number of results to return
             
         Returns:
-            List of publication records
+            List of LiteratureRecord objects
         """
-        base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
+        # Smart query construction based on search type
+        query_templates = {
+            "knockout": f"{gene_symbol}[Gene] AND (knockout[Title/Abstract] OR knockout[MeSH Terms] OR 'gene knockout'[Title/Abstract] OR deletion[Title/Abstract])",
+            "phenotype": f"{gene_symbol}[Gene] AND (phenotype[Title/Abstract] OR phenotypic[Title/Abstract] OR 'mutant phenotype'[Title/Abstract] OR morphological[Title/Abstract])",
+            "viability": f"{gene_symbol}[Gene] AND (viability[Title/Abstract] OR viable[Title/Abstract] OR lethal[Title/Abstract] OR lethality[Title/Abstract] OR survival[Title/Abstract] OR 'embryonic lethal'[Title/Abstract])",
+            "crispr": f"{gene_symbol}[Gene] AND (CRISPR[Title/Abstract] OR 'guide RNA'[Title/Abstract] OR gRNA[Title/Abstract] OR 'gene editing'[Title/Abstract])",
+            "compensatory": f"{gene_symbol}[Gene] AND (compensatory[Title/Abstract] OR compensation[Title/Abstract] OR 'redundant gene'[Title/Abstract] OR paralog[Title/Abstract] OR 'genetic buffering'[Title/Abstract])",
+            "comprehensive": f"{gene_symbol}[Gene] AND (knockout[Title/Abstract] OR phenotype[Title/Abstract] OR mutant[Title/Abstract] OR viability[Title/Abstract] OR CRISPR[Title/Abstract])"
+        }
         
-        # Construct search query based on type
-        if search_type == "knockout":
-            query = f"{gene_symbol}[Gene] AND (knockout[Title/Abstract] OR knockout[MeSH Terms] OR mutant[Title/Abstract])"
-        elif search_type == "phenotype":
-            query = f"{gene_symbol}[Gene] AND (phenotype[Title/Abstract] OR phenotype[MeSH Terms] OR morpholino[Title/Abstract])"
-        elif search_type == "viability":
-            query = f"{gene_symbol}[Gene] AND (viability[Title/Abstract] OR lethal[Title/Abstract] OR survival[Title/Abstract])"
-        elif search_type == "crispr":
-            query = f"{gene_symbol}[Gene] AND (CRISPR[Title/Abstract] OR guide[Title/Abstract] OR gRNA[Title/Abstract])"
-        else:  # comprehensive
-            query = f"{gene_symbol}[Gene] AND (knockout[Title/Abstract] OR phenotype[Title/Abstract] OR mutant[Title/Abstract] OR viability[Title/Abstract])"
+        query = query_templates.get(search_type, query_templates["comprehensive"])
         
-        # Build parameters for ESearch
+        # Step 1: Search for PMIDs
         search_params = {
             "db": "pubmed",
             "term": query,
-            "retmax": 100,  # Limit to 100 results for performance
+            "retmax": retmax,
             "retmode": "json",
-            "sort": "relevance"
+            "sort": "relevance",
+            "email": self.email
         }
         
-        if self.api_key:
-            search_params["api_key"] = self.api_key
+        response = self._make_request("esearch.fcgi", search_params)
+        if not response:
+            return []
         
         try:
-            # Perform search
-            response = requests.get(base_url + "esearch.fcgi", params=search_params, timeout=30)
-            response.raise_for_status()
-            
             search_results = response.json()
+            id_list = search_results.get("esearchresult", {}).get("idlist", [])
+        except:
+            logger.error("Failed to parse PubMed search response")
+            return []
+        
+        if not id_list:
+            logger.info(f"No publications found for gene {gene_symbol} with search type {search_type}")
+            return []
+        
+        # Step 2: Fetch detailed records
+        return self._fetch_pubmed_details(id_list[:min(50, retmax)])
+    
+    def _fetch_pubmed_details(self, pmid_list: List[str]) -> List[LiteratureRecord]:
+        """Fetch detailed PubMed records including abstracts."""
+        if not pmid_list:
+            return []
+        
+        fetch_params = {
+            "db": "pubmed",
+            "id": ",".join(pmid_list),
+            "retmode": "xml",
+            "email": self.email
+        }
+        
+        response = self._make_request("efetch.fcgi", fetch_params, timeout=60)
+        if not response:
+            return []
+        
+        try:
+            import xml.etree.ElementTree as ET
+            root = ET.fromstring(response.content)
             
-            if "esearchresult" not in search_results or "idlist" not in search_results["esearchresult"]:
-                logger.warning(f"No publications found for gene {gene_symbol} with search type {search_type}")
-                return []
+            records = []
+            for article in root.findall('.//PubmedArticle'):
+                record = self._parse_pubmed_article(article)
+                if record:
+                    records.append(record)
             
-            id_list = search_results["esearchresult"]["idlist"]
-            if not id_list:
-                logger.info(f"No publications found for gene {gene_symbol} with search type {search_type}")
-                return []
-            
-            # Fetch detailed records for the IDs
-            pubmed_ids = ",".join(id_list[:20])  # Limit to 20 for detailed fetch to avoid timeouts
-            detail_params = {
-                "db": "pubmed",
-                "id": pubmed_ids,
-                "retmode": "xml",
-                "retmax": 20
-            }
-            
-            if self.api_key:
-                detail_params["api_key"] = self.api_key
-            
-            detail_response = requests.get(base_url + "efetch.fcgi", params=detail_params, timeout=30)
-            detail_response.raise_for_status()
-            
-            # Note: We're returning basic info since parsing XML is complex
-            # In a real implementation, you'd parse the XML properly
-            publications = []
-            for pmid in id_list[:20]:  # Take the first 20 results
-                pub_info = {
-                    "pmid": pmid,
-                    "gene_symbol": gene_symbol,
-                    "search_type": search_type,
-                    "abstract": "",  # Would be filled from XML parsing
-                    "title": "",
-                    "authors": [],
-                    "journal": "",
-                    "publication_date": ""
-                }
-                publications.append(pub_info)
-            
-            logger.info(f"Found {len(publications)} publications for gene {gene_symbol} with search type {search_type}")
-            return publications
-            
+            return records
         except Exception as e:
-            logger.error(f"Error searching PubMed for {gene_symbol}: {str(e)}")
+            logger.error(f"Error parsing PubMed XML: {str(e)}")
             return []
     
-    def batch_search_genes(self, gene_symbols: List[str]) -> Dict[str, List[Dict]]:
+    def _parse_pubmed_article(self, article) -> Optional[LiteratureRecord]:
+        """Parse a PubMed XML article into a LiteratureRecord."""
+        try:
+            import xml.etree.ElementTree as ET
+            
+            # Get PMID
+            pmid_elem = article.find('.//PMID')
+            pmid = pmid_elem.text if pmid_elem is not None else ""
+            
+            # Get PMC ID if available
+            pmcid = None
+            for article_id in article.findall('.//ArticleId'):
+                if article_id.get('IdType') == 'pmc':
+                    pmcid = article_id.text
+                    break
+            
+            # Get title
+            title_elem = article.find('.//ArticleTitle')
+            title = title_elem.text if title_elem is not None else ""
+            
+            # Get abstract
+            abstract_texts = []
+            for abstract in article.findall('.//Abstract/AbstractText'):
+                if abstract.text:
+                    abstract_texts.append(abstract.text)
+            abstract = " ".join(abstract_texts)
+            
+            # Get authors
+            authors = []
+            for author in article.findall('.//Author'):
+                last_name = author.find('LastName')
+                fore_name = author.find('ForeName')
+                if last_name is not None and last_name.text:
+                    name = last_name.text
+                    if fore_name is not None and fore_name.text:
+                        name = fore_name.text + " " + name
+                    authors.append(name)
+            
+            # Get journal
+            journal_elem = article.find('.//Journal/Title')
+            journal = journal_elem.text if journal_elem is not None else ""
+            
+            # Get publication date
+            pub_date = ""
+            year_elem = article.find('.//PubDate/Year')
+            if year_elem is not None and year_elem.text:
+                pub_date = year_elem.text
+            
+            # Get DOI
+            doi = None
+            for article_id in article.findall('.//ArticleId'):
+                if article_id.get('IdType') == 'doi':
+                    doi = article_id.text
+                    break
+            
+            # Get keywords
+            keywords = []
+            for keyword in article.findall('.//Keyword'):
+                if keyword.text:
+                    keywords.append(keyword.text)
+            
+            return LiteratureRecord(
+                pmid=pmid,
+                pmcid=pmcid,
+                title=title,
+                abstract=abstract,
+                full_text=None,  # Will be fetched separately if PMC ID available
+                authors=authors,
+                journal=journal,
+                publication_date=pub_date,
+                doi=doi,
+                keywords=keywords
+            )
+        except Exception as e:
+            logger.error(f"Error parsing article: {str(e)}")
+            return None
+    
+    def fetch_pmc_fulltext(self, pmcid: str) -> Optional[str]:
         """
-        Perform batch processing of multiple genes.
+        Fetch full text from PMC Open Access.
+        
+        Args:
+            pmcid: PMC ID (e.g., "PMC1234567")
+            
+        Returns:
+            Full text content or None if unavailable
+        """
+        if not pmcid:
+            return None
+        
+        # Remove "PMC" prefix if present
+        pmcid_clean = pmcid.replace("PMC", "")
+        
+        try:
+            # Try to fetch via OAI API
+            params = {
+                "verb": "GetRecord",
+                "identifier": f"oai:pubmedcentral.nih.gov:{pmcid_clean}",
+                "metadataPrefix": "pmc"
+            }
+            
+            response = requests.get(self.oai_base_url, params=params, timeout=30)
+            response.raise_for_status()
+            
+            # Parse XML to extract full text
+            import xml.etree.ElementTree as ET
+            root = ET.fromstring(response.content)
+            
+            # Extract body text
+            body_texts = []
+            for elem in root.iter():
+                if elem.tag.endswith('body') or elem.tag.endswith('p'):
+                    if elem.text:
+                        body_texts.append(elem.text)
+            
+            if body_texts:
+                return "\n".join(body_texts)
+            
+            return None
+        except Exception as e:
+            logger.error(f"Error fetching PMC full text for {pmcid}: {str(e)}")
+            return None
+    
+    def batch_search_genes(self, gene_symbols: List[str], search_types: Optional[List[str]] = None) -> Dict[str, List[LiteratureRecord]]:
+        """
+        Perform batch processing of multiple genes with multiple search strategies.
         
         Args:
             gene_symbols: List of gene symbols to search
+            search_types: List of search types to perform (default: all types)
             
         Returns:
             Dictionary mapping gene symbols to their publication lists
         """
+        if search_types is None:
+            search_types = ["knockout", "phenotype", "viability", "crispr", "compensatory", "comprehensive"]
+        
         results = {}
         
         for gene_symbol in gene_symbols:
-            logger.info(f"Searching literature for gene: {gene_symbol}")
+            logger.info(f"Batch searching literature for gene: {gene_symbol}")
             
-            # Perform multiple targeted searches
-            search_types = ["knockout", "phenotype", "viability", "crispr", "comprehensive"]
             gene_publications = []
+            seen_pmids = set()
             
             for search_type in search_types:
-                pubs = self.search_pubmed(gene_symbol, search_type)
-                gene_publications.extend(pubs)
+                pubs = self.search_pubmed(gene_symbol, search_type, retmax=50)
+                
+                for pub in pubs:
+                    if pub.pmid not in seen_pmids:
+                        seen_pmids.add(pub.pmid)
+                        gene_publications.append(pub)
+                        
+                        # Try to fetch full text if PMC ID available
+                        if pub.pmcid:
+                            full_text = self.fetch_pmc_fulltext(pub.pmcid)
+                            if full_text:
+                                pub.full_text = full_text
+                                pub.evidence_quality = "high"  # Full text available
             
-            # Deduplicate publications
-            unique_pubs = {}
-            for pub in gene_publications:
-                pub_id = pub["pmid"]
-                if pub_id not in unique_pubs:
-                    unique_pubs[pub_id] = pub
-            
-            results[gene_symbol] = list(unique_pubs.values())
-            
-            # Rate limiting to be respectful to NCBI servers
-            time.sleep(0.5)
+            results[gene_symbol] = gene_publications
+            logger.info(f"Found {len(gene_publications)} unique publications for {gene_symbol}")
         
         return results
 
-class VectorStore:
+
+class DiversityAwareVectorStore:
     """
-    Vector store for semantic search using FAISS.
+    Vector store for semantic search using FAISS with diversity weighting.
+    Implements adaptive retrieval with relevance thresholding and diversity weighting.
     """
     
-    def __init__(self):
+    def __init__(self, model_name: str = 'all-MiniLM-L6-v2'):
         if not RAG_AVAILABLE:
             logger.warning("Vector store unavailable due to missing dependencies")
             self.model = None
             self.index = None
             self.documents = []
+            self.embeddings = None
         else:
-            # Load pre-trained sentence transformer model
             try:
-                self.model = SentenceTransformer('all-MiniLM-L6-v2')
-                logger.info("Loaded sentence transformer model for embeddings")
+                self.model = SentenceTransformer(model_name)
+                logger.info(f"Loaded sentence transformer model: {model_name}")
             except Exception as e:
                 logger.error(f"Could not load sentence transformer model: {e}")
                 self.model = None
             
-            # Initialize FAISS index
             self.index = None
             self.documents = []
+            self.embeddings = None
     
-    def add_documents(self, documents: List[Dict]):
-        """
-        Add documents to the vector store.
-        
-        Args:
-            documents: List of documents with text content
-        """
+    def add_documents(self, documents: List[LiteratureRecord]):
+        """Add documents to the vector store."""
         if not RAG_AVAILABLE or self.model is None:
             logger.warning("Cannot add documents: RAG libraries not available")
             return
         
+        if not documents:
+            return
+        
+        # Prepare text for embedding
         texts = []
         for doc in documents:
-            # Extract text content from document
-            text = f"{doc.get('title', '')}. {doc.get('abstract', '')}"
+            text = f"{doc.title}. {doc.abstract}"
+            if doc.full_text:
+                text += f" {doc.full_text[:2000]}"  # Add first 2000 chars of full text
             texts.append(text)
         
         # Generate embeddings
-        embeddings = self.model.encode(texts)
+        embeddings = self.model.encode(texts, show_progress_bar=False)
         
-        # Create FAISS index if it doesn't exist
+        # Create FAISS index if doesn't exist
         if self.index is None:
             dimension = embeddings.shape[1]
             self.index = faiss.IndexFlatL2(dimension)
+            self.embeddings = embeddings
+        else:
+            self.embeddings = np.vstack([self.embeddings, embeddings])
         
-        # Add embeddings to index
+        # Add to index
         self.index.add(embeddings.astype('float32'))
-        
-        # Store documents
         self.documents.extend(documents)
-        logger.info(f"Added {len(documents)} documents to vector store")
+        
+        logger.info(f"Added {len(documents)} documents to vector store (total: {len(self.documents)})")
     
-    def search(self, query: str, k: int = 5, relevance_threshold: float = 0.5) -> List[Tuple[Dict, float]]:
+    def search(self, query: str, k: int = 10, relevance_threshold: float = 0.7,
+               diversity_weight: float = 0.3, context_aware: bool = True) -> List[Tuple[LiteratureRecord, float]]:
         """
-        Perform semantic search in the vector store.
+        Perform semantic search with adaptive retrieval and diversity weighting.
         
         Args:
             query: Search query
-            k: Number of results to return
-            relevance_threshold: Minimum similarity threshold
+            k: Number of results to return (will be adapted based on diversity)
+            relevance_threshold: Minimum similarity threshold (0-1)
+            diversity_weight: Weight for diversity vs relevance (0-1, higher = more diversity)
+            context_aware: Whether to adapt k based on query context
             
         Returns:
-            List of tuples (document, similarity_score)
+            List of tuples (document, adjusted_score)
         """
         if not RAG_AVAILABLE or self.model is None or self.index is None:
             logger.warning("Cannot perform search: RAG libraries not available or index empty")
             return []
         
-        # Generate embedding for query
+        # Context-aware k selection
+        if context_aware:
+            k = self._adapt_k_for_context(query, k)
+        
+        # Generate query embedding
         query_embedding = self.model.encode([query])
         
+        # Search for more results than needed for diversity reranking
+        search_k = min(k * 3, len(self.documents))
+        
         # Perform similarity search
-        similarities, indices = self.index.search(query_embedding.astype('float32'), k)
+        distances, indices = self.index.search(query_embedding.astype('float32'), search_k)
         
-        results = []
-        for sim, idx in zip(similarities[0], indices[0]):
+        # Convert distances to similarities (FAISS returns L2 distances)
+        # Convert: similarity = 1 / (1 + distance)
+        similarities = 1.0 / (1.0 + distances[0])
+        
+        # Filter by relevance threshold
+        candidates = []
+        for idx, sim in zip(indices[0], similarities):
             if idx < len(self.documents) and sim >= relevance_threshold:
-                results.append((self.documents[idx], float(sim)))
+                candidates.append((self.documents[idx], float(sim), idx))
         
-        # Sort by similarity (highest first)
-        results.sort(key=lambda x: x[1], reverse=True)
+        if not candidates:
+            return []
         
-        logger.info(f"Found {len(results)} relevant documents for query: {query}")
-        return results
+        # Apply diversity weighting using Maximal Marginal Relevance (MMR)
+        if diversity_weight > 0 and len(candidates) > k:
+            selected = self._maximal_marginal_relevance(candidates, k, diversity_weight)
+        else:
+            selected = candidates[:k]
+        
+        logger.info(f"Retrieved {len(selected)} diverse documents for query: {query[:50]}...")
+        return [(doc, score) for doc, score, _ in selected]
+    
+    def _adapt_k_for_context(self, query: str, base_k: int) -> int:
+        """
+        Adapt the number of retrieved documents based on query context.
+        
+        Viability/compensatory queries may need more documents for comprehensive analysis.
+        Specific gene queries can use fewer documents.
+        """
+        query_lower = query.lower()
+        
+        # High-context queries that need more evidence
+        high_context_terms = ['viability', 'lethal', 'compensatory', 'compensation', 
+                             'phenotype', 'knockout', 'essential']
+        
+        # Count context terms
+        context_score = sum(1 for term in high_context_terms if term in query_lower)
+        
+        if context_score >= 2:
+            return min(base_k * 2, 20)  # Double the results for complex queries
+        elif context_score == 1:
+            return min(int(base_k * 1.5), 15)
+        else:
+            return base_k
+    
+    def _maximal_marginal_relevance(self, candidates: List[Tuple], k: int, 
+                                    lambda_param: float) -> List[Tuple]:
+        """
+        Apply Maximal Marginal Relevance for diversity-weighted retrieval.
+        
+        MMR = lambda * Relevance - (1 - lambda) * max_similarity_to_selected
+        
+        Args:
+            candidates: List of (document, score, idx) tuples
+            k: Number of documents to select
+            lambda_param: Trade-off between relevance and diversity (0-1)
+            
+        Returns:
+            Selected documents with diversity weighting
+        """
+        if not RAG_AVAILABLE or self.embeddings is None:
+            return candidates[:k]
+        
+        selected = []
+        remaining = list(candidates)
+        
+        # Get embeddings for candidates
+        candidate_indices = [idx for _, _, idx in candidates]
+        candidate_embeddings = self.embeddings[candidate_indices]
+        
+        while len(selected) < k and remaining:
+            if not selected:
+                # Select highest relevance first
+                best = max(remaining, key=lambda x: x[1])
+                selected.append(best)
+                remaining.remove(best)
+            else:
+                # Calculate MMR scores
+                selected_indices = [idx for _, _, idx in selected]
+                selected_embeddings = self.embeddings[selected_indices]
+                
+                mmr_scores = []
+                for i, (doc, rel_score, idx) in enumerate(remaining):
+                    # Calculate max similarity to already selected documents
+                    emb = candidate_embeddings[i].reshape(1, -1)
+                    sims = np.dot(selected_embeddings, emb.T).flatten()
+                    max_sim = np.max(sims) if len(sims) > 0 else 0
+                    
+                    # MMR score
+                    mmr_score = lambda_param * rel_score - (1 - lambda_param) * max_sim
+                    mmr_scores.append((mmr_score, (doc, rel_score, idx)))
+                
+                # Select highest MMR score
+                best = max(mmr_scores, key=lambda x: x[0])[1]
+                selected.append(best)
+                remaining.remove(best)
+        
+        return selected
+    
+    def clear(self):
+        """Clear all documents from the vector store."""
+        self.index = None
+        self.documents = []
+        self.embeddings = None
+        logger.info("Vector store cleared")
+
 
 class PhenotypeExtractor:
     """
     Extracts and classifies phenotypes from literature.
+    Implements NLP pattern matching for phenotype terms with severity classification.
     """
     
     def __init__(self):
-        # Define regular expression patterns for phenotype terms
+        # Comprehensive phenotype patterns organized by category
         self.phenotype_patterns = {
             "lethality": [
-                r"lethal", r"embryonic.*lethal", r"perinatal.*lethal", 
-                r"postnatal.*lethal", r"death", r"mortality", r"survival"
+                r"\blethal\b", r"\blethality\b", r"embryonic\s+lethal", 
+                r"perinatal\s+lethal", r"postnatal\s+lethal", r"prenatal\s+lethal",
+                r"early\s+lethal", r"late\s+lethal", r"neonatal\s+lethal",
+                r"\bdeath\b", r"\bmortality\b", r"\bsurvival\b",
+                r"non-viable", r"inviable", r"sterile", r"\bsterility\b"
             ],
             "development": [
-                r"growth.*defect", r"development.*defect", r"morphogenetic.*defect",
-                r"abnormal.*development", r"malformation", r"dysplasia"
+                r"growth\s+defect", r"developmental\s+defect", r"morphogenetic\s+defect",
+                r"abnormal\s+development", r"malformation", r"\bdysplasia\b",
+                r"congenital\s+defect", r"birth\s+defect", r"teratogenic",
+                r"growth\s+retardation", r"developmental\s+delay", r"organogenesis\s+defect"
             ],
             "behavior": [
-                r"locomotion.*defect", r"behavior.*defect", r"motor.*defect",
-                r"movement.*defect", r"coordination.*defect"
+                r"behavioral\s+defect", r"locomotion\s+defect", r"motor\s+defect",
+                r"movement\s+defect", r"coordination\s+defect", r"locomotor\s+defect",
+                r"activity\s+defect", r"behavioral\s+abnormality", r"neurological\s+defect"
             ],
             "physiology": [
-                r"metabolic.*defect", r"cardiac.*defect", r"respiratory.*defect",
-                r"neurological.*defect", r"cognitive.*defect"
+                r"metabolic\s+defect", r"cardiac\s+defect", r"cardiovascular\s+defect",
+                r"respiratory\s+defect", r"neurological\s+defect", r"cognitive\s+defect",
+                r"immune\s+defect", r"reproductive\s+defect", r"sensory\s+defect",
+                r"vision\s+defect", r"hearing\s+defect", r"digestive\s+defect"
             ]
         }
         
-        # Define severity classification patterns
+        # Severity classification patterns
         self.severity_indicators = {
             PhenotypeSeverity.LETHAL: [
-                r"lethal", r"embryonic.*lethal", r"perinatal.*lethal", 
-                r"postnatal.*lethal", r"early.*lethal", r"severe.*lethal"
+                r"\blethal\b", r"\blethality\b", r"embryonic\s+lethal", 
+                r"perinatal\s+lethal", r"postnatal\s+lethal", r"early\s+lethal",
+                r"100%\s+lethal", r"complete\s+lethality", r"fully\s+lethal",
+                r"non-viable", r"inviable"
             ],
             PhenotypeSeverity.SEVERE: [
-                r"severe", r"major.*defect", r"profound.*impairment", 
-                r"significant.*defect", r"substantial.*defect"
+                r"\bsevere\b", r"\bsevere\s+defect\b", r"major\s+defect", 
+                r"profound\s+impairment", r"significant\s+defect", r"substantial\s+defect",
+                r"extreme\s+phenotype", r"drastic\s+effect", r"dramatic\s+change"
             ],
             PhenotypeSeverity.MODERATE: [
-                r"moderate", r"intermediate", r"reduced.*fitness", 
-                r"growth.*defect", r"minor.*defect"
+                r"\bmoderate\b", r"\bintermediate\b", r"reduced\s+fitness", 
+                r"partial\s+defect", r"mild\s+defect", r"minor\s+impairment",
+                r"suboptimal", r"compromised"
             ],
             PhenotypeSeverity.MILD: [
-                r"mild", r"subtle", r"minor", r"slight", r"small.*change"
+                r"\bmild\b", r"\bsubtle\b", r"\bminor\b", r"\bslight\b", 
+                r"\bsmall\s+change\b", r"\bminimal\b", r"\bweak\s+phenotype\b"
             ]
         }
+        
+        # Compensatory mechanism patterns
+        self.compensatory_patterns = [
+            r"compensat(?:e|ion|ory)", r"redundancy", r"redundant\s+gene",
+            r"genetic\s+buffering", r"paralog", r"paralogous",
+            r"backup\s+gene", r"functional\s+redundancy", r"gene\s+duplication",
+            r"homeostatic\s+mechanism", r"feedback\s+mechanism"
+        ]
     
     def extract_phenotypes_from_text(self, text: str) -> List[Dict]:
         """
@@ -335,51 +627,74 @@ class PhenotypeExtractor:
         Returns:
             List of extracted phenotypes with details
         """
-        phenotypes = []
+        if not text:
+            return []
         
-        # Convert text to lowercase for pattern matching
-        lower_text = text.lower()
+        phenotypes = []
+        text_lower = text.lower()
         
         # Check for each phenotype category
         for category, patterns in self.phenotype_patterns.items():
             for pattern in patterns:
-                matches = re.finditer(pattern, lower_text, re.IGNORECASE)
-                for match in matches:
+                for match in re.finditer(pattern, text_lower, re.IGNORECASE):
+                    context_start = max(0, match.start() - 100)
+                    context_end = min(len(text), match.end() + 100)
+                    
                     phenotype = {
                         "category": category,
                         "term": match.group(),
                         "position": match.span(),
-                        "context": text[max(0, match.start()-100):match.end()+100].strip()
+                        "context": text[context_start:context_end].strip(),
+                        "evidence_quality": "high" if len(text) > 500 else "medium"
                     }
                     phenotypes.append(phenotype)
         
         return phenotypes
     
-    def classify_severity(self, phenotypes: List[Dict], abstract_text: str = "") -> Tuple[PhenotypeSeverity, str]:
+    def extract_compensatory_mechanisms(self, text: str) -> List[Dict]:
+        """Extract compensatory mechanism mentions from text."""
+        if not text:
+            return []
+        
+        mechanisms = []
+        text_lower = text.lower()
+        
+        for pattern in self.compensatory_patterns:
+            for match in re.finditer(pattern, text_lower, re.IGNORECASE):
+                context_start = max(0, match.start() - 150)
+                context_end = min(len(text), match.end() + 150)
+                
+                mechanisms.append({
+                    "term": match.group(),
+                    "context": text[context_start:context_end].strip(),
+                    "confidence": "high" if "compensat" in match.group() else "medium"
+                })
+        
+        return mechanisms
+    
+    def classify_severity(self, phenotypes: List[Dict], text: str = "") -> Tuple[PhenotypeSeverity, str]:
         """
         Classify the overall severity based on extracted phenotypes and text.
         
-        Args:
-            phenotypes: List of extracted phenotypes
-            abstract_text: Full text for additional context
-            
         Returns:
             Tuple of (severity, reasoning)
         """
-        # Combine phenotypes and abstract text for analysis
-        combined_text = abstract_text.lower()
+        if not phenotypes and not text:
+            return PhenotypeSeverity.UNKNOWN, "No phenotype data available"
+        
+        combined_text = text.lower()
         for pheno in phenotypes:
-            combined_text += " " + pheno["term"].lower()
+            combined_text += " " + pheno.get("term", "").lower()
         
         # Count severity indicators
-        severity_counts = {}
-        for severity, patterns in self.severity_indicators.items():
-            count = 0
-            for pattern in patterns:
-                count += len(re.findall(pattern, combined_text, re.IGNORECASE))
-            severity_counts[severity] = count
+        severity_counts = {severity: 0 for severity in PhenotypeSeverity}
         
-        # Determine overall severity
+        for severity, patterns in self.severity_indicators.items():
+            for pattern in patterns:
+                matches = re.findall(pattern, combined_text, re.IGNORECASE)
+                severity_counts[severity] += len(matches)
+        
+        # Determine overall severity (highest severity with at least one match)
         if severity_counts[PhenotypeSeverity.LETHAL] > 0:
             return PhenotypeSeverity.LETHAL, f"Lethality terms detected ({severity_counts[PhenotypeSeverity.LETHAL]} instances)"
         elif severity_counts[PhenotypeSeverity.SEVERE] > 0:
@@ -395,19 +710,20 @@ class PhenotypeExtractor:
         """
         Detect the stage of lethality if present.
         
-        Args:
-            text: Text to analyze
-            
         Returns:
             Stage of lethality or None
         """
+        if not text:
+            return None
+        
         text_lower = text.lower()
         
         stages = [
-            (r"embryonic.*lethal|embryo.*lethal", "Embryonic"),
-            (r"perinatal.*lethal", "Perinatal"), 
-            (r"postnatal.*lethal|adult.*lethal", "Postnatal"),
-            (r"larval.*lethal|juvenile.*lethal", "Juvenile/Larval")
+            (r"embryonic\s+lethal|embryo\s+lethal|prenatal\s+lethal|e\d+\.\d", "Embryonic"),
+            (r"perinatal\s+lethal|perinatal\s+death|birth\s+lethal", "Perinatal"),
+            (r"postnatal\s+lethal|adult\s+lethal|juvenile\s+lethal|p\d+\.\d", "Postnatal"),
+            (r"larval\s+lethal|l\d+\s+lethal", "Larval"),
+            (r"neonatal\s+lethal|newborn\s+lethal", "Neonatal")
         ]
         
         for pattern, stage in stages:
@@ -415,86 +731,188 @@ class PhenotypeExtractor:
                 return stage
         
         return None
+    
+    def calculate_confidence_score(self, publications: List[LiteratureRecord], 
+                                   phenotypes: List[Dict], 
+                                   has_full_text: bool) -> Tuple[float, str]:
+        """
+        Calculate confidence score based on:
+        - Publication count and quality
+        - Evidence clarity (full text vs abstract only)
+        - Consistency of findings
+        
+        Returns:
+            Tuple of (confidence_score, reasoning)
+        """
+        if not publications:
+            return 0.1, "No publication evidence available"
+        
+        # Base score from publication count
+        pub_count = len(publications)
+        if pub_count >= 20:
+            pub_score = 0.4
+        elif pub_count >= 10:
+            pub_score = 0.3
+        elif pub_count >= 5:
+            pub_score = 0.2
+        else:
+            pub_score = 0.1
+        
+        # Evidence quality bonus
+        high_quality_pubs = sum(1 for pub in publications if pub.evidence_quality == "high")
+        evidence_score = min(0.3, high_quality_pubs * 0.1)
+        
+        # Full text bonus
+        full_text_score = 0.2 if has_full_text else 0.0
+        
+        # Phenotype extraction bonus
+        phenotype_score = min(0.2, len(phenotypes) * 0.05)
+        
+        # Calculate total
+        total_score = pub_score + evidence_score + full_text_score + phenotype_score
+        
+        # Cap at 1.0
+        total_score = min(1.0, total_score)
+        
+        reasoning = (
+            f"Confidence based on {pub_count} publications "
+            f"({high_quality_pubs} with full text), "
+            f"{len(phenotypes)} phenotype terms extracted. "
+            f"Evidence quality: {'High' if total_score > 0.7 else 'Medium' if total_score > 0.4 else 'Low'}."
+        )
+        
+        return total_score, reasoning
+
 
 class RAGPhenotypePredictor:
     """
     Main class for RAG-based phenotype prediction.
+    Orchestrates literature mining, vector search, and phenotype extraction.
     """
     
     def __init__(self):
         self.literature_miner = LiteratureMiner()
-        self.vector_store = VectorStore()
+        self.vector_store = DiversityAwareVectorStore()
         self.phenotype_extractor = PhenotypeExtractor()
         self.logger = logging.getLogger(__name__)
     
-    def predict_phenotype(self, gene_symbol: str, organism_taxid: str = "9606") -> PhenotypePrediction:
+    def predict_phenotype(self, gene_symbol: str, organism_taxid: str = "9606",
+                         include_compensatory: bool = True) -> PhenotypePrediction:
         """
         Predict knockout phenotype for a gene using RAG.
         
         Args:
             gene_symbol: Gene symbol to predict phenotype for
             organism_taxid: NCBI Taxonomy ID for the organism
+            include_compensatory: Whether to search for compensatory mechanisms
             
         Returns:
             PhenotypePrediction object with results
         """
         self.logger.info(f"Predicting phenotype for gene {gene_symbol} in organism {organism_taxid}")
         
-        # Step 1: Mine literature
-        publications = self.literature_miner.search_pubmed(gene_symbol, "comprehensive")
+        # Step 1: Mine literature with multiple search strategies
+        search_types = ["knockout", "phenotype", "viability"]
+        if include_compensatory:
+            search_types.append("compensatory")
         
-        if not publications:
-            self.logger.warning(f"No literature found for gene {gene_symbol}, returning unknown phenotype")
+        publications = []
+        for search_type in search_types:
+            pubs = self.literature_miner.search_pubmed(gene_symbol, search_type, retmax=30)
+            publications.extend(pubs)
+        
+        # Deduplicate publications
+        seen_pmids = set()
+        unique_publications = []
+        for pub in publications:
+            if pub.pmid not in seen_pmids:
+                seen_pmids.add(pub.pmid)
+                unique_publications.append(pub)
+        
+        if not unique_publications:
+            self.logger.warning(f"No literature found for gene {gene_symbol}")
             return PhenotypePrediction(
                 severity=PhenotypeSeverity.UNKNOWN,
                 risk_level=RiskLevel.UNKNOWN,
                 confidence_score=0.1,
                 predicted_phenotypes=[],
                 supporting_evidence=[],
+                compensatory_mechanisms=[],
                 confidence_reasoning="No literature found for this gene"
             )
         
-        # Step 2: Add to vector store for semantic search
-        self.vector_store.add_documents(publications)
+        self.logger.info(f"Retrieved {len(unique_publications)} unique publications for {gene_symbol}")
         
-        # Step 3: Perform targeted queries to extract phenotype information
-        queries = [
-            f"What phenotypes result from {gene_symbol} knockout?",
-            f"What is the viability of {gene_symbol} mutants?",
-            f"What developmental defects occur in {gene_symbol} knockouts?",
-            f"Is {gene_symbol} essential for survival?"
-        ]
+        # Step 2: Add to vector store for semantic search
+        self.vector_store.clear()
+        self.vector_store.add_documents(unique_publications)
+        
+        # Step 3: Perform specialized queries
+        queries = self._construct_specialized_queries(gene_symbol, include_compensatory)
         
         all_relevant_docs = []
         for query in queries:
-            relevant_docs = self.vector_store.search(query, k=3)
+            # Use adaptive retrieval with diversity weighting
+            relevant_docs = self.vector_store.search(
+                query, 
+                k=5, 
+                relevance_threshold=0.6,
+                diversity_weight=0.3,
+                context_aware=True
+            )
             all_relevant_docs.extend(relevant_docs)
         
-        # Step 4: Extract phenotypes from relevant documents
-        all_phenotypes = []
-        supporting_evidence = []
-        
+        # Deduplicate
+        seen_docs = set()
+        unique_docs = []
         for doc, score in all_relevant_docs:
-            # Extract phenotypes from document text
-            text_content = f"{doc.get('title', '')}. {doc.get('abstract', '')}"
-            phenotypes = self.phenotype_extractor.extract_phenotypes_from_text(text_content)
+            if doc.pmid not in seen_docs:
+                seen_docs.add(doc.pmid)
+                unique_docs.append((doc, score))
+        
+        # Step 4: Extract phenotypes and compensatory mechanisms
+        all_phenotypes = []
+        all_compensatory = []
+        supporting_evidence = []
+        has_full_text = False
+        
+        for doc, score in unique_docs:
+            # Combine all available text
+            text_parts = [doc.title, doc.abstract]
+            if doc.full_text:
+                text_parts.append(doc.full_text)
+                has_full_text = True
             
+            text_content = " ".join(filter(None, text_parts))
+            
+            # Extract phenotypes
+            phenotypes = self.phenotype_extractor.extract_phenotypes_from_text(text_content)
             all_phenotypes.extend(phenotypes)
+            
+            # Extract compensatory mechanisms
+            compensatory = self.phenotype_extractor.extract_compensatory_mechanisms(text_content)
+            all_compensatory.extend(compensatory)
             
             # Add supporting evidence
             evidence = {
-                "pmid": doc.get("pmid"),
-                "title": doc.get("title"),
+                "pmid": doc.pmid,
+                "pmcid": doc.pmcid,
+                "title": doc.title,
                 "similarity_score": score,
-                "phenotypes_extracted": [p["term"] for p in phenotypes]
+                "phenotypes_extracted": [p["term"] for p in phenotypes],
+                "evidence_quality": doc.evidence_quality,
+                "publication_date": doc.publication_date,
+                "journal": doc.journal
             }
             supporting_evidence.append(evidence)
         
-        # Step 5: Classify severity and determine risk
-        severity, reasoning = self.phenotype_extractor.classify_severity(all_phenotypes, 
-                                                                       " ".join([e["title"] for e in supporting_evidence]))
+        # Step 5: Classify severity
+        combined_text = " ".join([doc.title + " " + doc.abstract for doc, _ in unique_docs])
+        severity, severity_reasoning = self.phenotype_extractor.classify_severity(
+            all_phenotypes, combined_text
+        )
         
-        # Determine risk level based on severity
+        # Step 6: Determine risk level
         risk_mapping = {
             PhenotypeSeverity.LETHAL: RiskLevel.CRITICAL,
             PhenotypeSeverity.SEVERE: RiskLevel.HIGH,
@@ -504,37 +922,69 @@ class RAGPhenotypePredictor:
         }
         risk_level = risk_mapping.get(severity, RiskLevel.UNKNOWN)
         
-        # Detect lethality stage if applicable
+        # Step 7: Detect lethality stage if applicable
         lethality_stage = None
         if severity == PhenotypeSeverity.LETHAL:
-            # Look for stage information in supporting text
-            full_text = " ".join([e["title"] for e in supporting_evidence])
-            lethality_stage = self.phenotype_extractor.detect_lethality_stage(full_text)
+            lethality_stage = self.phenotype_extractor.detect_lethality_stage(combined_text)
         
-        # Calculate confidence based on number of publications and evidence quality
-        confidence_score = min(1.0, 0.1 + (len(supporting_evidence) * 0.2) + (len(all_phenotypes) * 0.1))
+        # Step 8: Calculate confidence score
+        confidence_score, confidence_reasoning = self.phenotype_extractor.calculate_confidence_score(
+            unique_publications,
+            all_phenotypes,
+            has_full_text
+        )
+        
+        # Step 9: Compile compensatory mechanisms
+        compensatory_mechanisms = list(set([m["term"] for m in all_compensatory]))
         
         # Create prediction result
         prediction = PhenotypePrediction(
             severity=severity,
             risk_level=risk_level,
             confidence_score=confidence_score,
-            predicted_phenotypes=list(set([p["term"] for p in all_phenotypes])),  # Unique phenotypes
+            predicted_phenotypes=list(set([p["term"] for p in all_phenotypes])),
             supporting_evidence=supporting_evidence,
             lethality_stage=lethality_stage,
-            confidence_reasoning=f"{reasoning}. Based on {len(supporting_evidence)} publications with {len(all_phenotypes)} phenotype terms extracted."
+            compensatory_mechanisms=compensatory_mechanisms,
+            confidence_reasoning=confidence_reasoning + " " + severity_reasoning
         )
         
-        self.logger.info(f"Predicted phenotype for {gene_symbol}: {severity.value}, risk {risk_level.value}, confidence {confidence_score:.2f}")
+        self.logger.info(
+            f"Predicted phenotype for {gene_symbol}: "
+            f"severity={severity.value}, risk={risk_level.value}, "
+            f"confidence={confidence_score:.2f}, "
+            f"compensatory={len(compensatory_mechanisms)}"
+        )
+        
         return prediction
     
-    def batch_predict_phenotypes(self, gene_list: List[str], organism_taxid: str = "9606") -> Dict[str, PhenotypePrediction]:
+    def _construct_specialized_queries(self, gene_symbol: str, include_compensatory: bool) -> List[str]:
+        """Construct specialized queries for phenotype prediction."""
+        queries = [
+            f"{gene_symbol} knockout phenotype",
+            f"{gene_symbol} mutant viability",
+            f"{gene_symbol} gene deletion effect",
+            f"Is {gene_symbol} essential for survival?",
+        ]
+        
+        if include_compensatory:
+            queries.extend([
+                f"{gene_symbol} compensatory mechanism",
+                f"{gene_symbol} genetic redundancy",
+                f"{gene_symbol} paralog compensation"
+            ])
+        
+        return queries
+    
+    def batch_predict_phenotypes(self, gene_list: List[str], organism_taxid: str = "9606",
+                                 include_compensatory: bool = True) -> Dict[str, PhenotypePrediction]:
         """
         Predict phenotypes for multiple genes.
         
         Args:
             gene_list: List of gene symbols
             organism_taxid: NCBI Taxonomy ID for the organism
+            include_compensatory: Whether to search for compensatory mechanisms
             
         Returns:
             Dictionary mapping gene symbols to predictions
@@ -543,46 +993,32 @@ class RAGPhenotypePredictor:
         
         for gene_symbol in gene_list:
             try:
-                prediction = self.predict_phenotype(gene_symbol, organism_taxid)
+                prediction = self.predict_phenotype(gene_symbol, organism_taxid, include_compensatory)
                 results[gene_symbol] = prediction
             except Exception as e:
                 self.logger.error(f"Error predicting phenotype for {gene_symbol}: {str(e)}")
-                # Add a default prediction for failed genes
                 results[gene_symbol] = PhenotypePrediction(
                     severity=PhenotypeSeverity.UNKNOWN,
                     risk_level=RiskLevel.UNKNOWN,
                     confidence_score=0.0,
                     predicted_phenotypes=[],
                     supporting_evidence=[],
+                    compensatory_mechanisms=[],
                     confidence_reasoning=f"Prediction failed: {str(e)}"
                 )
         
         return results
 
-def predict_gene_phenotype(gene_symbol: str, organism_taxid: str = "9606") -> PhenotypePrediction:
-    """
-    Convenience function to predict phenotype for a single gene.
-    
-    Args:
-        gene_symbol: Gene symbol to predict phenotype for
-        organism_taxid: NCBI Taxonomy ID for the organism
-        
-    Returns:
-        PhenotypePrediction object
-    """
-    predictor = RAGPhenotypePredictor()
-    return predictor.predict_phenotype(gene_symbol, organism_taxid)
 
-def batch_predict_gene_phenotypes(gene_list: List[str], organism_taxid: str = "9606") -> Dict[str, PhenotypePrediction]:
-    """
-    Convenience function to predict phenotypes for multiple genes.
-    
-    Args:
-        gene_list: List of gene symbols
-        organism_taxid: NCBI Taxonomy ID for the organism
-        
-    Returns:
-        Dictionary mapping gene symbols to predictions
-    """
+# Convenience functions for easy access
+def predict_gene_phenotype(gene_symbol: str, organism_taxid: str = "9606",
+                          include_compensatory: bool = True) -> PhenotypePrediction:
+    """Convenience function to predict phenotype for a single gene."""
     predictor = RAGPhenotypePredictor()
-    return predictor.batch_predict_phenotypes(gene_list, organism_taxid)
+    return predictor.predict_phenotype(gene_symbol, organism_taxid, include_compensatory)
+
+def batch_predict_gene_phenotypes(gene_list: List[str], organism_taxid: str = "9606",
+                                  include_compensatory: bool = True) -> Dict[str, PhenotypePrediction]:
+    """Convenience function to predict phenotypes for multiple genes."""
+    predictor = RAGPhenotypePredictor()
+    return predictor.batch_predict_phenotypes(gene_list, organism_taxid, include_compensatory)
