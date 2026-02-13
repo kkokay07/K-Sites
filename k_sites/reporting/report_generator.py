@@ -508,10 +508,10 @@ def _generate_report_html(
     Generate the complete HTML report.
     """
     # Escape metadata values for safety
-    escaped_go_term = html.escape(metadata.get("go_term", "Unknown"))
-    escaped_organism = html.escape(metadata.get("organism", "Unknown"))
+    escaped_go_term = html.escape(str(metadata.get("go_term", "Unknown")))
+    escaped_organism = html.escape(str(metadata.get("organism", "Unknown")))
     resolved_organism = metadata.get("resolved_organism", {})
-    escaped_scientific_name = html.escape(resolved_organism.get("scientific_name", "Unknown") if resolved_organism else "Unknown")
+    escaped_scientific_name = html.escape(str(resolved_organism.get("scientific_name", "Unknown") if resolved_organism else "Unknown"))
     timestamp = metadata.get("timestamp", "")
     execution_duration = metadata.get("execution_duration", 0)
     evidence_filter = metadata.get("evidence_filter", "experimental")
@@ -812,7 +812,7 @@ def _generate_report_html(
     
     # Add gene rows to the table
     for rank, gene in enumerate(genes, 1):
-        symbol = html.escape(gene.get("symbol", "Unknown"))
+        symbol = html.escape(str(gene.get("symbol", "Unknown")))
         pleiotropy_score = gene.get("pleiotropy_score", 0)
         specificity_score = gene.get("specificity_score", 0)
         composite_score = gene.get("composite_score", 0)
@@ -864,7 +864,7 @@ def _generate_report_html(
                         <td><span class="safety-level {safety_class}">{safety_level}</span></td>
                         <td>
                             {primary_rec}
-                            {f'<div class="justification-box">{html.escape(safety_justification)}</div>' if safety_justification else ''}
+                            {f'<div class="justification-box">{html.escape(str(safety_justification))}</div>' if safety_justification else ''}
                         </td>
                         <td>{guide_count}</td>
                     </tr>
@@ -881,7 +881,7 @@ def _generate_report_html(
     
     # Add detailed gRNA information for each gene
     for gene in genes:
-        symbol = html.escape(gene.get("symbol", "Unknown"))
+        symbol = html.escape(str(gene.get("symbol", "Unknown")))
         guides = gene.get("guides", [])
         
         if not guides:
@@ -911,7 +911,7 @@ def _generate_report_html(
         
         for guide in guides:
             if isinstance(guide, dict):
-                seq = html.escape(guide.get("seq", ""))
+                seq = html.escape(str(guide.get("seq", "")))
                 position = guide.get("position", "N/A")
                 doench_score = guide.get("doench_score", 0)
                 cfd_off_targets = guide.get("cfd_off_targets", "N/A")

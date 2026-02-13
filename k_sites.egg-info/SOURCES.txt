@@ -31,6 +31,7 @@ k_sites/rag_system/literature_context.py
 k_sites/reporting/__init__.py
 k_sites/reporting/csv_export.py
 k_sites/reporting/genbank_export.py
+k_sites/reporting/rag_report_generator.py
 k_sites/reporting/report_generator.py
 k_sites/workflow/__init__.py
 k_sites/workflow/pipeline.py

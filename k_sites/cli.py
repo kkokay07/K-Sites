@@ -167,7 +167,8 @@ def run_k_sites_analysis(args):
             'max_pleiotropy': getattr(args, 'max_pleiotropy', 3),  # Default value
             'evidence_filter': getattr(args, 'evidence_filter', 'experimental'),  # Default evidence filter
             'species_validation': getattr(args, 'species_validation', None),  # Default species list
-            'predict_phenotypes': getattr(args, 'predict_phenotypes', False)  # Default to False
+            'predict_phenotypes': getattr(args, 'predict_phenotypes', False),  # Default to False
+            'databases': getattr(args, 'databases', ['all'])  # Databases to query
         }
         
         # Execute the main pipeline
@@ -188,6 +189,31 @@ def run_k_sites_analysis(args):
             most_specific = stats.get('most_specific_gene', {})
             if most_specific:
                 print(f"- Most specific gene: {most_specific.get('symbol', 'N/A')} (score: {most_specific.get('specificity_score', 0):.2f})")
+        
+        # Generate RAG reports if requested
+        if getattr(args, 'rag_report', False) and getattr(args, 'predict_phenotypes', False):
+            logger.info("Generating detailed RAG literature reports...")
+            try:
+                from k_sites.reporting.rag_report_generator import generate_batch_rag_report
+                import os
+                
+                output_dir = os.path.dirname(args.output) or '.'
+                rag_output_dir = os.path.join(output_dir, 'rag_reports')
+                
+                gene_symbols = [gene.get('symbol') for gene in results.get('genes', []) if gene.get('symbol')]
+                rag_results = generate_batch_rag_report(gene_symbols, taxid, rag_output_dir)
+                
+                successful = sum(1 for v in rag_results.values() if v)
+                print(f"\n📚 RAG Reports Generated: {successful}/{len(rag_results)} genes")
+                print(f"   Location: {rag_output_dir}/")
+                
+            except Exception as e:
+                logger.warning(f"Could not generate RAG reports: {e}")
+        
+        # Show database usage info
+        databases_used = getattr(args, 'databases', ['all'])
+        if databases_used:
+            print(f"\n🗄️  Databases Used: {', '.join(databases_used)}")
         
         logger.info("Analysis completed successfully!")
         
@@ -210,16 +236,35 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
+  # Basic usage
   %(prog)s --go-term GO:0006281 --organism "Homo sapiens" --output report.html
+  
+  # With Neo4j pathway analysis
   %(prog)s --go-term GO:0006281 --organism 9606 --output report.html --use-graph
-  %(prog)s --go-term GO:0006281 --organism hsa --output results/report.html --no-graph
+  
+  # With RAG phenotype prediction and literature reports
+  %(prog)s --go-term GO:0006281 --organism 9606 --output report.html --predict-phenotypes --rag-report
+  
+  # Select specific databases
+  %(prog)s --go-term GO:0006281 --organism 9606 --output report.html --databases quickgo uniprot
+  
+  # Search for GO terms
   %(prog)s --go-term-search "DNA repair" --organism "Homo sapiens" --output report.html
+
+Database Options (--databases):
+  - quickgo:   Gene Ontology annotations (always used for GO term mapping)
+  - uniprot:   Protein knowledgebase (protein function, domains)
+  - ncbi:      NCBI Entrez gene database (gene summaries)
+  - pubmed:    Literature support (PubMed citation counts)
+  - kegg:      KEGG pathway database (pathway annotations)
+  - all:       Use all available databases (default)
 
 Note:
   - Organism can be NCBI TaxID (e.g., 9606) or scientific name (e.g., "Homo sapiens")
   - GO term format: GO:0000000 (7 digits after GO:)
   - Graph mode uses Neo4j KEGG pathway data for enhanced pleiotropy assessment
   - Use --go-term-search to get GO term suggestions with gene count statistics
+  - Use --rag-report to generate detailed literature analysis for each gene
         """
     )
     
@@ -281,6 +326,20 @@ Note:
         '--predict-phenotypes',
         action='store_true',
         help='Enable RAG-based phenotype prediction using literature mining (default: false)'
+    )
+    
+    parser.add_argument(
+        '--rag-report',
+        action='store_true',
+        help='Generate detailed RAG literature analysis reports for each gene (requires --predict-phenotypes)'
+    )
+    
+    parser.add_argument(
+        '--databases',
+        nargs='+',
+        choices=['quickgo', 'uniprot', 'ncbi', 'pubmed', 'kegg', 'all'],
+        default=['all'],
+        help='Select databases to query (default: all). Options: quickgo, uniprot, ncbi, pubmed, kegg, all'
     )
     
     parser.add_argument(

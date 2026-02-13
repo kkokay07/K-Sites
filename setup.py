@@ -12,7 +12,7 @@ with open(os.path.join(this_directory, 'README.md'), encoding='utf-8') as f:
 
 setup(
     name="k-sites",
-    version="1.1.0",
+    version="1.2.0",
     author="Kanaka KK, Sandip Garai, Jeevan C, Tanzil Fatima",
     author_email="kanakakk@example.com",
     description="Universal K-Sites: AI-Powered CRISPR Guide RNA Design Platform with Pathway-Aware Off-Target Filtering",

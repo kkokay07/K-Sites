@@ -5,7 +5,7 @@ A comprehensive tool for designing high-confidence gRNAs with integrated
 GO term and KEGG pathway analysis for reduced pleiotropy.
 """
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 __author__ = "K-Sites Development Team"
 __description__ = "AI-Powered CRISPR Guide RNA Design Platform with Pathway-Aware Off-Target Filtering"
 

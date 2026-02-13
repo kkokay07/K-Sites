@@ -24,7 +24,8 @@ def run_k_sites_pipeline(
     use_graph: bool = True,
     evidence_filter: str = "experimental",
     species_validation: List[str] = None,
-    predict_phenotypes: bool = False
+    predict_phenotypes: bool = False,
+    databases: List[str] = None
 ) -> Dict[str, Any]:
     """
     Execute the complete K-Sites pipeline.
@@ -37,6 +38,7 @@ def run_k_sites_pipeline(
         evidence_filter: Type of evidence to include ("experimental", "computational", "all")
         species_validation: List of species taxids for cross-species validation
         predict_phenotypes: Whether to predict knockout phenotypes using RAG (default: False)
+        databases: List of databases to query (e.g., ['quickgo', 'uniprot', 'kegg'])
         
     Returns:
         Dictionary with pipeline results:
@@ -48,7 +50,8 @@ def run_k_sites_pipeline(
                 "max_pleiotropy": 3,
                 "evidence_filter": "experimental",
                 "species_validation": [...],
-                "predict_phenotypes": false
+                "predict_phenotypes": false,
+                "databases": [...]
             },
             "genes": [
                 {
@@ -293,7 +296,8 @@ def run_k_sites_pipeline(
                 "use_graph": use_graph,
                 "evidence_filter": evidence_filter,
                 "species_validation": species_validation,
-                "predict_phenotypes": predict_phenotypes
+                "predict_phenotypes": predict_phenotypes,
+                "databases": databases or ['all']
             },
             "genes": processed_genes,
             "statistics": statistics
