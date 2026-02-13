@@ -12,10 +12,10 @@ with open(os.path.join(this_directory, 'README.md'), encoding='utf-8') as f:
 
 setup(
     name="k-sites",
-    version="1.2.0",
+    version="1.2.1",
     author="Kanaka KK, Sandip Garai, Jeevan C, Tanzil Fatima",
     author_email="kanakakk@example.com",
-    description="Universal K-Sites: AI-Powered CRISPR Guide RNA Design Platform with Pathway-Aware Off-Target Filtering",
+    description="K-Sites: AI-Powered CRISPR Guide RNA Design Platform with Multi-Database Integration (GO.org, UniProt, KEGG), Exponential Decay Pleiotropy Scoring, Evidence-Based Filtering (IDA/IMP/IGI vs IEA), and RAG-Based Phenotype Prediction",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/KanakaKK/K-sites",
