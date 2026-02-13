@@ -1,111 +1,128 @@
-# PyPI Upload Script for K-Sites
-
-This document outlines the complete process for uploading the K-Sites package to PyPI.
+# PyPI Upload Guide for K-Sites
 
 ## Package Information
 
-**Package Name**: k-sites
-**Version**: 1.0.0
+**Package Name**: `k-sites`  
+**Current Version**: 1.1.0  
 **Description**: Universal K-Sites: AI-Powered CRISPR Guide RNA Design Platform with Pathway-Aware Off-Target Filtering
 
+## What's New in v1.1.0
+
+### Major Features
+- **Non-Pleiotropic Gene Identification**: Multi-database integration (GO, UniProt, KEGG)
+- **Advanced CRISPR gRNA Design**: Doench 2016 and CFD scoring algorithms
+- **RAG-Based Phenotype Prediction**: Literature mining with semantic search
+- **Web Application**: Flask-based UI with hierarchical selection
+- **Neo4j Integration**: Pathway-aware off-target filtering
+- **Email Notifications**: Analysis completion alerts
+- **Multiple Export Formats**: CSV, Excel, GenBank, FASTA, HTML
+
+### Installation Options
+
+```bash
+# Basic installation
+pip install k-sites
+
+# With RAG phenotype prediction support
+pip install 'k-sites[rag]'
+
+# With web application support
+pip install 'k-sites[webapp]'
+
+# With all features
+pip install 'k-sites[all]'
+```
+
+## Upload Instructions
+
+### Option 1: Automated Release Script (Recommended)
+
+1. **Set your PyPI API token:**
+   ```bash
+   export PYPI_API_TOKEN='pypi-YourTokenHere'
+   ```
+
+2. **(Optional) Set your GitHub token:**
+   ```bash
+   export GITHUB_TOKEN='ghp_YourTokenHere'
+   ```
+
+3. **Run the release script:**
+   ```bash
+   chmod +x complete_release.sh
+   ./complete_release.sh
+   ```
+
+### Option 2: Manual Upload
+
+1. **Install build tools:**
+   ```bash
+   pip install twine build
+   ```
+
+2. **Build the package:**
+   ```bash
+   python -m build
+   ```
+
+3. **Verify the distribution:**
+   ```bash
+   twine check dist/*
+   ```
+
+4. **Upload to PyPI:**
+   ```bash
+   twine upload dist/*
+   ```
+
+   Enter your PyPI username (`__token__`) and API token as the password.
+
+### Creating GitHub Repository Manually
+
+If you prefer to create the GitHub repository manually:
+
+1. Go to https://github.com/new
+2. Repository name: `k-sites`
+3. Description: `AI-Powered CRISPR Guide RNA Design Platform`
+4. Make it Public
+5. Click "Create repository"
+6. Follow the instructions to push an existing repository:
+   ```bash
+   git remote add origin https://github.com/YOUR_USERNAME/k-sites.git
+   git branch -M master
+   git push -u origin master
+   ```
+
+## Post-Upload Verification
+
+1. **Check the PyPI page:**
+   - Visit: https://pypi.org/project/k-sites/
+   - Verify version, description, and metadata
+
+2. **Test installation:**
+   ```bash
+   pip install k-sites
+   k-sites --help
+   ```
+
+3. **Test with all features:**
+   ```bash
+   pip install 'k-sites[all]'
+   python -c "from k_sites.rag_system import RAGPhenotypePredictor; print('RAG system loaded')"
+   ```
+
 ## Developers
+
 - Kanaka KK (Lead Architect)
 - Sandip Garai (Neo4j Graph Integration Specialist)
 - Jeevan C (CRISPR Algorithm Developer)
 - Tanzil Fatima (Bioinformatics Analyst)
 
-## Upload Process
-
-1. **Prepare the environment**:
-   ```bash
-   pip install twine
-   ```
-
-2. **Build the package** (already done):
-   ```bash
-   python -m build
-   ```
-   
-   This creates:
-   - `dist/k_sites-1.0.0.tar.gz` (source distribution)
-   - `dist/k_sites-1.0.0-py3-none-any.whl` (wheel distribution)
-
-3. **Upload to Test PyPI first** (recommended):
-   ```bash
-   twine upload --repository testpypi dist/*
-   ```
-
-4. **Upload to PyPI**:
-   ```bash
-   twine upload dist/*
-   ```
-
-## Verification
-
-After upload, the package will be available at:
-- https://pypi.org/project/k-sites/
-
-Users will be able to install with:
-```bash
-pip install k-sites
-```
-
-## Documentation
-
-All documentation is included in the package:
-- README.md (included in long_description)
-- All module docstrings
-- CLI help text
-- Configuration examples
-
-## Package Contents
-
-The package includes:
-- All Python modules in the k_sites/ directory
-- Command-line interface with 'k-sites' entry point
-- Complete documentation
-- Test files
-- Configuration examples
-
-## Dependencies
-
-Automatically installed with the package:
-- requests>=2.25.0
-- biopython>=1.78
-- neo4j>=4.4.0
-- pyyaml>=5.4.0
-- tqdm>=4.60.0
-- dataclasses-json>=0.5.0
-- pandas>=1.3.0
-
 ## License
 
-MIT License - see LICENSE file in the package.
+MIT License - See LICENSE file for details.
 
-## Post-Upload Verification
+## Support
 
-After uploading, verify the package works:
-
-```bash
-# Create a new environment
-python -m venv test_env
-source test_env/bin/activate  # On Windows: test_env\Scripts\activate
-
-# Install the package
-pip install k-sites
-
-# Verify installation
-k-sites --help
-```
-
-## Repository
-
-The complete source code is available at:
-https://github.com/KanakaKK/K-sites
-
-This includes:
-- Full source code
-- Documentation
-- Tests
-- Examples
-- Configuration templates
+- Issues: https://github.com/KanakaKK/K-sites/issues
+- Documentation: https://github.com/KanakaKK/K-sites/blob/main/README.md
